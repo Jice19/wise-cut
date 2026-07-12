@@ -1,0 +1,8 @@
+node_modules/
+dist/
+out/
+coverage/
+.vite/
+*.lock
+pnpm-lock.yaml
+.next/

@@ -1,0 +1,14 @@
+{
+    "version": "0.2",
+    "language": "en,zh-CN",
+    "words": ["miaoma", "magicut", "electron", "forge", "zh"],
+    "ignorePaths": [
+        "node_modules",
+        "dist",
+        "out",
+        "coverage",
+        ".vite",
+        ".next",
+        "pnpm-lock.yaml"
+    ]
+}

@@ -1,0 +1,16 @@
+node_modules/
+dist/
+out/
+.vite/
+.vite-node/
+*.log
+.DS_Store
+coverage/
+.env.local
+apps/desktop/bin/darwin/*
+apps/desktop/bin/win32/*
+!apps/desktop/bin/darwin/.gitkeep
+!apps/desktop/bin/win32/.gitkeep
+.next/
+.turbo/
+.cache/

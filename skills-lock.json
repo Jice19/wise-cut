@@ -1,0 +1,40 @@
+{
+    "skills": [
+        {
+            "source": "hairyf/skills/skills/electron-forge",
+            "sourceType": "github",
+            "skillPath": "skills/electron-forge",
+            "computedHash": "electron-forge-v7.10.2"
+        },
+        {
+            "source": "vercel/tailwind-v4",
+            "sourceType": "github",
+            "skillPath": "skills/tailwind-v4",
+            "computedHash": "tailwindcss-v4.1.0"
+        },
+        {
+            "source": "vercel-labs/vercel-react-best-practices",
+            "sourceType": "github",
+            "skillPath": "skills/vercel-react-best-practices",
+            "computedHash": "react-18-best-practices"
+        },
+        {
+            "source": "vercel-labs/vercel-composition-patterns",
+            "sourceType": "github",
+            "skillPath": "skills/vercel-composition-patterns",
+            "computedHash": "composition-patterns-v1"
+        },
+        {
+            "source": "anthropic/skills/quality-code",
+            "sourceType": "github",
+            "skillPath": "skills/quality-code",
+            "computedHash": "quality-code-v1"
+        },
+        {
+            "source": "anthropic/skills/web-accessibility",
+            "sourceType": "github",
+            "skillPath": "skills/web-accessibility",
+            "computedHash": "web-a11y-v1"
+        }
+    ]
+}
