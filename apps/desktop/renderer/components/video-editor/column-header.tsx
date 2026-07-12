@@ -1,4 +1,4 @@
-import { Icon } from './icons';
+import { Icon } from '../icons';
 
 /** LeftColumn 顶部 (Pencil HiU9l SBHeader) */
 export const SceneColumnHeader = (): JSX.Element => (

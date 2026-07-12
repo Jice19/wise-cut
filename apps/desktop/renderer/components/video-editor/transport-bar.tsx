@@ -1,4 +1,4 @@
-import { Icon } from './icons';
+import { Icon } from '../icons';
 
 /** Pencil `JVeXR TransportBar` — 播放器下方播放控制条 + 时间显示 + 音量。 */
 

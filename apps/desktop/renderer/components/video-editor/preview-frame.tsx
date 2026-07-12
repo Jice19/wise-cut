@@ -1,4 +1,4 @@
-import { Icon } from './icons';
+import { Icon } from '../icons';
 
 /** Pencil `FVvrT PreviewHeader` + `lScWz PlayerArea` + `vyb2d PlayerFrame`。 */
 

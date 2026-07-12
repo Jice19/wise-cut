@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-import { Icon } from './icons';
+import { Icon } from '../icons';
 
 export interface ToolDef {
     name: string;

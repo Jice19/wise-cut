@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-import { Icon } from './icons';
+import { Icon } from '../icons';
 
 export interface SceneCardProps {
     /** 编号，例如 "01" / "02" — 渲染为左上角 ID 徽章。 */
