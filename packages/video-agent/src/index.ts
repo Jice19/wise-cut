@@ -11,6 +11,11 @@
  */
 
 export {
+    analyzeAssets,
+    type AnalyzeAssetsInput,
+    createFsVideoAgentTools
+} from './graph/steps/analyze-assets';
+export {
     extractKeyframes,
     ExtractKeyframesError
 } from './media/extract-keyframes';
@@ -36,3 +41,4 @@ export type {
     FrameImage,
     ModelProvider
 } from './providers/model-provider';
+export type { VideoAgentTools } from './tools/video-agent-tools';

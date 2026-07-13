@@ -55,8 +55,11 @@ export const AssetAnalysisSchema = z.object({
     filePath: z.string().min(1),
     fps: z.number().nonnegative(),
     frames: z.array(AssetFrameAnalysisSchema),
-    height: z.number().int().positive(),
-    width: z.number().int().positive()
+    /**
+     * 0 表示降级(plan §2.5:抽帧或探测失败时允许 frames: [],width/height 也未测量)。
+     */
+    height: z.number().int().nonnegative(),
+    width: z.number().int().nonnegative()
 });
 
 export type AssetAnalysis = z.infer<typeof AssetAnalysisSchema>;
