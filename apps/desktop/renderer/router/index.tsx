@@ -78,11 +78,9 @@ export const routes: RouteObject[] = [
     },
     {
         path: '/create/runs/:runId',
-        element: (
-            <AppShell pageLabel="智能体运行">
-                <AgentRunScreen />
-            </AppShell>
-        )
+        // Screen 内部自己包 AppShell（与 editor 路由保持一致），
+        // 路由层不要重复包，否则会出现两个 TopBar。
+        element: <AgentRunScreen />
     },
     {
         path: '/editor',

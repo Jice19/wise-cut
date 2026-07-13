@@ -41,13 +41,19 @@ const createMainWindow = (): BrowserWindow => {
         minHeight: 640,
         show: false,
         autoHideMenuBar: false,
-        // macOS：隐藏系统标题栏但保留 traffic-light（红黄绿按钮）。
-        // 避免 macOS native title bar 与 React `<TopBar>` 在窗口顶端重叠。
-        // Win/Linux 不识别此字段，原生标题栏仍然存在 —— 但 React TopBar 会位于内容区顶部。
+        // macOS 隐藏系统 native title bar —— 否则它会叠加在 React TopBar
+        // 之上形成两条。traffic-light 由 React 端 pl-20 避开。
+        // 'hiddenInset'：保留 inset 飘带（仅有 28px 顶部）但隐藏文字
+        // 'hidden'：完全移除顶部条 —— 但 traffic-light 也会被隐藏，需要
+        //   走 setWindowButtonPosition / 自绘按钮。优先选 hiddenInset 实用。
+        // Win/Linux 不识别此字段，原生标题栏仍然存在。
         ...(process.platform === 'darwin'
             ? {
                   titleBarStyle: 'hiddenInset' as const,
-                  trafficLightPosition: { x: 12, y: 16 }
+                  trafficLightPosition: { x: 12, y: 14 } as {
+                      x: number;
+                      y: number;
+                  }
               }
             : {}),
         webPreferences: {
@@ -57,6 +63,13 @@ const createMainWindow = (): BrowserWindow => {
             sandbox: false
         }
     });
+    // 诊断：每次主进程启动时打印当前 title bar 风格，便于排查双 topbar。
+    // eslint-disable-next-line no-console
+    console.log(
+        '[main] BrowserWindow created',
+        `platform=${process.platform}`,
+        'titleBarStyle=hiddenInset (mac) or default (others)'
+    );
 
     // 加载渲染层（开发态由 vite dev server 提供，生产态读本地 .vite/build/renderer/...html）
     // MAIN_WINDOW_VITE_DEV_SERVER_URL / MAIN_WINDOW_VITE_NAME 由 @electron-forge/plugin-vite

@@ -16,7 +16,10 @@
         "format": "prettier --write \"**/*.{ts,tsx,js,cjs,mjs,json,css,scss,html,md}\"",
         "test": "vitest",
         "test:run": "vitest run",
-        "test:coverage": "vitest run --coverage"
+        "test:coverage": "vitest run --coverage",
+        "probe:m3": "tsx scripts/api-probe/probe-minimax-m3.ts",
+        "probe:tts": "tsx scripts/api-probe/probe-volcengine-tts.ts",
+        "probe:all": "pnpm probe:m3 && pnpm probe:tts"
     },
     "dependencies": {
         "electron-squirrel-startup": "^1.0.0",
@@ -32,14 +35,19 @@
         "@electron-forge/maker-zip": "7.10.2",
         "@electron-forge/maker-rpm": "7.10.2",
         "@electron-forge/maker-deb": "7.10.2",
+        "@types/node": "^22.19.21",
         "@types/react": "^18.3.0",
         "@types/react-dom": "^18.3.0",
+        "@types/ws": "^8.18.1",
         "@vitejs/plugin-react": "^4.3.0",
         "@tailwindcss/vite": "^4.1.0",
+        "dotenv": "^17.4.2",
         "electron": "38.4.0",
         "tailwindcss": "^4.1.0",
+        "tsx": "^4.19.2",
+        "typescript": "5.9.3",
         "vite": "^5.4.0",
         "vitest": "^2.1.0",
-        "typescript": "5.9.3"
+        "ws": "^8.21.0"
     }
 }

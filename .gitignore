@@ -14,3 +14,9 @@ apps/desktop/bin/win32/*
 .next/
 .turbo/
 .cache/
+
+docs/agent-plan.md
+docs/student-implementation-plan.md
+
+# API probe 脚本输出(临时 mp3 / 日志)
+apps/desktop/scripts/api-probe/.probe-out/
