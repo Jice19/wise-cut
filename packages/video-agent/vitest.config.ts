@@ -10,22 +10,15 @@ const resolveFromHere = (relativePath: string): string =>
 export default defineConfig({
     resolve: {
         alias: {
-            '@': resolveFromHere('./renderer'),
-            '@miaoma-magicut/video-agent': resolveFromHere(
-                '../../packages/video-agent/src/index.ts'
-            ),
+            '@miaoma-magicut/video-agent': resolveFromHere('./src/index.ts'),
             '@miaoma-magicut/video-project': resolveFromHere(
-                '../../packages/video-project/src/index.ts'
+                '../video-project/src/index.ts'
             )
         }
     },
     test: {
         environment: 'node',
         globals: true,
-        include: [
-            'renderer/**/*.{test,spec}.{ts,tsx}',
-            'client/**/*.test.ts',
-            'tests/**/*.{test,spec}.ts'
-        ]
+        include: ['tests/**/*.{test,spec}.ts']
     }
 });

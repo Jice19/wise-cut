@@ -1,7 +1,17 @@
 /**
- * @miaoma-magicut/video-agent — Phase 2 commit 1 占位入口。
+ * @miaoma-magicut/video-agent — Phase 2 commit 2 入口。
  *
- * 真实入口(`graph/pipeline.ts` 等)在 Phase 2 commit 2/3/4 阶段陆续接入。
+ * 当前导出 media 子模块(probeMedia + extractKeyframes + 错误类)。
+ * Phase 2 commit 3 起会陆续加 providers / agents / pipeline。
  */
 
-export const VIDEO_AGENT_PACKAGE_NAME = '@miaoma-magicut/video-agent';
+export {
+    extractKeyframes,
+    ExtractKeyframesError
+} from './media/extract-keyframes';
+export {
+    NoVideoStreamError,
+    probeMedia,
+    ProbeMediaError
+} from './media/probe-media';
+export { VIDEO_AGENT_PACKAGE_NAME } from './package-name';
