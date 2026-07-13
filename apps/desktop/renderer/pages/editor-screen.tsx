@@ -35,7 +35,7 @@ const SCENES: readonly SceneCardProps[] = [
             <>
                 <span className="font-mono text-[10px]">02:13</span>
                 <span>·</span>
-                <span className="font-mono text-[10px]">已生成</span>
+                <span className="font-mono text-[10px]">已剪辑</span>
             </>
         )
     },
@@ -47,7 +47,7 @@ const SCENES: readonly SceneCardProps[] = [
             <>
                 <span className="font-mono text-[10px]">04:08</span>
                 <span>·</span>
-                <span className="font-mono text-[10px]">渲染中</span>
+                <span className="font-mono text-[10px]">剪辑中</span>
             </>
         )
     },
@@ -73,7 +73,7 @@ const SCENES: readonly SceneCardProps[] = [
             <>
                 <span className="font-mono text-[10px]">02:04</span>
                 <span>·</span>
-                <span className="font-mono text-[10px]">已生成</span>
+                <span className="font-mono text-[10px]">已剪辑</span>
             </>
         )
     },
@@ -85,7 +85,7 @@ const SCENES: readonly SceneCardProps[] = [
             <>
                 <span className="font-mono text-[10px]">01:36</span>
                 <span>·</span>
-                <span className="font-mono text-[10px]">已生成</span>
+                <span className="font-mono text-[10px]">已剪辑</span>
             </>
         )
     },
@@ -97,7 +97,7 @@ const SCENES: readonly SceneCardProps[] = [
             <>
                 <span className="font-mono text-[10px]">03:11</span>
                 <span>·</span>
-                <span className="font-mono text-[10px]">已生成</span>
+                <span className="font-mono text-[10px]">已剪辑</span>
             </>
         )
     }
@@ -149,7 +149,7 @@ const TABS: readonly TabChipProps[] = [
 
 const FILTER_CHIPS: readonly FilterChipProps[] = [
     { label: '推荐', active: true },
-    { label: 'AI生成' },
+    { label: '特效' },
     { label: '片头' },
     { label: '转场' },
     { label: '滤镜' }
@@ -165,7 +165,13 @@ const FILTER_CHIPS: readonly FilterChipProps[] = [
  *
  * 顶部 Modal（导出）保留为占位。
  */
-export const EditorScreen = (): JSX.Element => {
+export interface EditorScreenProps {
+    /** 当前编辑器的项目 ID；来自路由 `/editor/:projectId`。 */
+    projectId: string;
+}
+
+export const EditorScreen = ({ projectId }: EditorScreenProps): JSX.Element => {
+    void projectId;
     return (
         <AppShell pageLabel="编辑器">
             <ColumnLayout>

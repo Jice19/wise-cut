@@ -2,7 +2,7 @@
     "name": "@miaoma-magicut/server",
     "version": "0.1.0",
     "private": true,
-    "description": "妙码智能剪辑平台 - 服务端占位",
+    "description": "AI智能剪辑平台 - 服务端占位",
     "scripts": {
         "dev": "next dev",
         "build": "next build",

@@ -70,7 +70,7 @@ export const SceneCard = ({
                     <>
                         <span className="font-mono text-[10px]">02:13</span>
                         <span>·</span>
-                        <span className="font-mono text-[10px]">已生成</span>
+                        <span className="font-mono text-[10px]">已剪辑</span>
                     </>
                 )}
             </div>

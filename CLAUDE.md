@@ -64,9 +64,10 @@ miaoma-magicut/
 │   │   ├── shared/ipc.ts                 # IPC channel 常量 + Window.miaomaAPI 类型
 │   │   ├── bin/{darwin,win32}/           # ffmpeg 等二进制占位（.gitkeep 保留目录）
 │   │   ├── forge.config.ts               # electron-forge 配置（不入 FusesPlugin，避开 CJS/ESM 冲突）
-│   │   ├── vite.{main,preload,renderer}.config.ts
+│   │   ├── vite.{main,preload}.config.ts  # 主进程/preload 用 .ts（无 ESM-only 依赖）
+│   │   ├── vite.renderer.config.mjs       # renderer 用 .mjs（防 esbuild CJS 互操作）+ root: 'renderer' + alias '@'
 │   │   ├── vitest.config.ts
-│   │   └── tsconfig.json                 # paths: @/* → renderer/*
+│   │   └── tsconfig.json                 # paths: @/* → renderer/*（**Vite 不读，vite.renderer.config.mjs 里也声明 alias**）
 │   └── server/                           # Next.js 14 App Router 占位
 │       ├── app/{layout,page}.tsx         # 仅渲染一行品牌文字
 │       ├── app/api/health/route.ts       # GET → { status: 'ok' }
@@ -126,19 +127,19 @@ pnpm commit
 
 提交类型：
 
-| emoji | type | 用途 |
-|---|---|---|
-| ✨ | feat | 新功能 |
-| 🐛 | fix | 修复 |
-| 📝 | docs | 文档 |
-| 💄 | style | 代码格式 |
-| 📦️ | refactor | 重构 |
-| 🚀 | perf | 性能 |
-| 🚨 | test | 测试 |
-| 🛠 | build | 构建 |
-| 🎡 | ci | CI |
-| 🔨 | chore | 杂项 |
-| ⏪️ | revert | 回滚 |
+| emoji | type     | 用途     |
+| ----- | -------- | -------- |
+| ✨    | feat     | 新功能   |
+| 🐛    | fix      | 修复     |
+| 📝    | docs     | 文档     |
+| 💄    | style    | 代码格式 |
+| 📦️   | refactor | 重构     |
+| 🚀    | perf     | 性能     |
+| 🚨    | test     | 测试     |
+| 🛠    | build    | 构建     |
+| 🎡    | ci       | CI       |
+| 🔨    | chore    | 杂项     |
+| ⏪️   | revert   | 回滚     |
 
 ## 环境变量
 
@@ -159,27 +160,34 @@ pnpm commit
 > 这些坑都已经在第一次构建过程中遇到并修复，**新增 vite 配置或迁移脚本时请勿反向修改**：
 
 - **renderer 的 vite 配置必须是 `.mjs` 而不是 `.ts`**：`@tailwindcss/vite` 与 `@vitejs/plugin-react` 都是 ESM-only，electron-forge plugin-vite 用 esbuild 加载配置；若配置是 `.ts` 且 apps/desktop/package.json 缺 `"type": "module"`，esbuild 会按 CJS 处理 → `require('@tailwindcss/vite')` 抛 `ESM file cannot be loaded by require`。
-  - [apps/desktop/vite.renderer.config.mjs](apps/desktop/vite.renderer.config.mjs) 是 `.mjs`
-  - 主进程 / preload 的 vite 配置 `vite.{main,preload}.config.ts` 保持 `.ts`（它们没有 ESM-only 依赖）
-  - `forge.config.ts` 的 `renderer.config` 字段指向 `.mjs`
+    - [apps/desktop/vite.renderer.config.mjs](apps/desktop/vite.renderer.config.mjs) 是 `.mjs`
+    - 主进程 / preload 的 vite 配置 `vite.{main,preload}.config.ts` 保持 `.ts`（它们没有 ESM-only 依赖）
+    - `forge.config.ts` 的 `renderer.config` 字段指向 `.mjs`
 - **vite dev server 监听 `host: '127.0.0.1'` 而不是默认 `localhost`**：macOS 上 vite 5 默认会绑 IPv6 `[::1]`，但 Electron `localhost` 解析走 IPv4 → `net::ERR_CONNECTION_REFUSED`。`lsof -nP -iTCP:5173 -sTCP:LISTEN` 可验证。
 - **主进程用 vite `define` 注入的环境变量是裸标识符**：`MAIN_WINDOW_VITE_DEV_SERVER_URL` / `MAIN_WINDOW_VITE_NAME` 不要写 `process.env.MAIN_WINDOW_VITE_DEV_SERVER_URL`，vite define 替换成字符串字面量；用裸 const。模板里已有 type 声明 [node_modules/@electron-forge/plugin-vite/forge-vite-env.d.ts](node_modules/@electron-forge/plugin-vite/forge-vite-env.d.ts)。
 - **冷启动重试**：vite dev server 首次冷启动 esbuild 依赖预构建通常 5-10 秒，主进程用 `waitForServer(URL, retries=60, intervalMs=500)` 等待，最多 30 秒窗口后才放弃。
 - **开发态自动 DevTools**：[apps/desktop/client/main.ts](apps/desktop/client/main.ts) `app.isPackaged` 为 false 时 `webContents.openDevTools({ mode: 'detach' })`。
+- **renderer vite config 必须显式 `root: 'renderer'`**：electron-forge 默认 root 是仓库根目录 / 应用根，`/main.tsx` 会 404 → DevTools 报 `Failed to load resource: 500 Internal Server Error`。`[apps/desktop/vite.renderer.config.mjs](apps/desktop/vite.renderer.config.mjs)` 用 `root: 'renderer'` 让 `<script src="/main.tsx">` 解析到 `apps/desktop/renderer/main.tsx`。
+- **Vite 不读 tsconfig.json 的 `paths`**：`@/*` 别名必须在 `vite.renderer.config.mjs` 里手写 `resolve.alias` 才能被 vite 解析（同 tsconfig.json 里的 `paths: { "@/*": ["renderer/*"] }`），否则 `[plugin:vite:import-analysis] Failed to resolve import "@/pages/HomeScreen"` 报错。
+- **GitHub 推送：`http.version=HTTP/1.1`**：本机走 GitHub 时 HTTP/2 framing 偶发失败，全局 `git config --global http.version HTTP/1.1` 已设。远程是 `https://github.com/Jice19/wise-cut.git`（HTTPS + `gh auth token`，不是 SSH，因本机 `id_ed25519` 公钥未绑 GitHub）。
 
 ## 雷区一览（综合上文关键修复）
 
-| ❌ 禁止 | ✅ 正确做法 |
-|---|---|
-| `nodeLinker: isolated` | 保持 `hoisted` |
-| 装 `plugin-fuses@7.10.2 + fuses@2.0.0` | 不装 plugin-fuses，或 fuses `^1.0.0` |
-| `engines.node: '>=22'` 或 `>=20` | `">=22 <23"` + volta pin 22.11.0 |
-| 顶层调用 `protocol.registerSchemesAsPrivileged` | 放进 `app.whenReady()` 第一行 |
-| ESLint 用传统 `.eslintrc` | flat config (`eslint.config.mjs`) |
-| husky v8 写法（手装 `husky install`） | husky 9.x 自动 (`pnpm prepare` 时) |
-| `apps/desktop/vite.renderer.config.ts` | `vite.renderer.config.mjs`（防 esbuild CJS 处理） |
-| `process.env.MAIN_WINDOW_VITE_DEV_SERVER_URL` | 裸 const（vite define 替换为字符串字面量） |
-| vite 默认 `host: 'localhost'`（macOS 会绑 IPv6）| `host: '127.0.0.1'` |
+| ❌ 禁止                                          | ✅ 正确做法                                                                                  |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| `nodeLinker: isolated`                           | 保持 `hoisted`                                                                               |
+| 装 `plugin-fuses@7.10.2 + fuses@2.0.0`           | 不装 plugin-fuses，或 fuses `^1.0.0`                                                         |
+| `engines.node: '>=22'` 或 `>=20`                 | `">=22 <23"` + volta pin 22.11.0                                                             |
+| 顶层调用 `protocol.registerSchemesAsPrivileged`  | 放进 `app.whenReady()` 第一行                                                                |
+| ESLint 用传统 `.eslintrc`                        | flat config (`eslint.config.mjs`)                                                            |
+| husky v8 写法（手装 `husky install`）            | husky 9.x 自动 (`pnpm prepare` 时)                                                           |
+| `apps/desktop/vite.renderer.config.ts`           | `vite.renderer.config.mjs`（防 esbuild CJS 处理）                                            |
+| `process.env.MAIN_WINDOW_VITE_DEV_SERVER_URL`    | 裸 const（vite define 替换为字符串字面量）                                                   |
+| vite 默认 `host: 'localhost'`（macOS 会绑 IPv6） | `host: '127.0.0.1'`                                                                          |
+| renderer vite config 不写 `root: 'renderer'`     | `/main.tsx` → 500（vite 以仓库根为基）                                                       |
+| 渲染层里写 `import x from '@/x'` 不配 vite alias | `[plugin:vite:import-analysis] Failed to resolve`——vite 不读 tsconfig.paths                  |
+| git remote 用 SSH 公钥                           | 本机 `id_ed25519` 未绑 GitHub；用 `https://github.com/Jice19/wise-cut.git` + `gh auth token` |
+| git push 直连默认 HTTP/2                         | 全局 `git config --global http.version HTTP/1.1`（已设），防 HTTP/2 framing 偶发失败         |
 
 ## Electron 异常排查（按观察点定位）
 
@@ -188,3 +196,4 @@ pnpm commit
 3. **Chromium / GPU 内部 stderr**：也走终端，例如 `Failed to load URL`、`Autofill.enable wasn't found`（无害警告）。
 4. **vite 是否在监听**：`lsof -nP -iTCP:5173 -sTCP:LISTEN` ——IPv4 `127.0.0.1` 才对，IPv6 `[::1]` Electron 走 IPv4 解析会失败。
 5. **冷启动竞态**：vite `httpServer.once('listening')` 回调晚于 Electron 启动窗口 → 主进程 `waitForServer` 已加 30s 窗口；如仍失败，在 DevTools Network 面板看请求是否 `net::ERR_CONNECTION_REFUSED`。
+6. **vite 报 404 / 500**：`main.tsx` 显示 loading 后红 `Failed to load resource`。多半是 `root` 或 `@` alias 没配。检查 [apps/desktop/vite.renderer.config.mjs](apps/desktop/vite.renderer.config.mjs)：必有 `root: 'renderer'` + `resolve.alias: { '@': resolve(here, 'renderer') }`。

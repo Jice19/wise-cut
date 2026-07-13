@@ -21,10 +21,10 @@ export const CreationScreen = (): JSX.Element => {
                 {/* Hero */}
                 <div className="flex flex-col items-center gap-4 py-12 text-center">
                     <h1 className="text-4xl font-bold text-text-primary">
-                        开始你的 <span className="text-brand">AI 创作</span>
+                        开始你的 <span className="text-brand">智能剪辑</span>
                     </h1>
                     <p className="text-text-secondary">
-                        用一句自然语言描述，AI AI 自动拆脚本、配画面、配音乐。
+                        用一句自然语言描述，妙码自动拆脚本、配字幕、配音乐，并重组你素材库里的现有片段。
                     </p>
                 </div>
 
@@ -58,7 +58,7 @@ export const CreationScreen = (): JSX.Element => {
                             type="button"
                             className="rounded-md bg-brand px-8 py-2 text-sm font-semibold text-text-on-brand hover:bg-brand-dim"
                         >
-                            ▶ 开始生成
+                            ▶ 开始剪辑
                         </button>
                     </div>
                 </div>
@@ -67,7 +67,7 @@ export const CreationScreen = (): JSX.Element => {
                 <div>
                     <div className="mb-3 flex items-center justify-between">
                         <h2 className="text-sm font-semibold text-text-primary">
-                            生成的脚本
+                            初始分镜
                         </h2>
                         <span className="text-xs text-text-tertiary">
                             {SCRIPT_CARDS.length} 段
