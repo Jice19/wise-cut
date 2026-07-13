@@ -19,8 +19,8 @@ export const TopBar = ({
     projectLabel = '春日Vlog'
 }: TopBarProps): JSX.Element => {
     return (
-        <header className="flex h-14 w-full items-center justify-between bg-bg-base px-6">
-            {/* 左: Breadcrumb */}
+        <header className="flex h-14 w-full items-center justify-between bg-bg-base pl-20 pr-6">
+            {/* 左: Breadcrumb (macOS 下 pl-20 为 hiddenInset traffic-light 留位) */}
             <div className="flex items-center gap-2 font-sans text-[13px]">
                 <span className="font-semibold text-brand">AI智能剪辑</span>
                 <span className="text-text-tertiary">/</span>

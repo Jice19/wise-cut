@@ -41,6 +41,15 @@ const createMainWindow = (): BrowserWindow => {
         minHeight: 640,
         show: false,
         autoHideMenuBar: false,
+        // macOS：隐藏系统标题栏但保留 traffic-light（红黄绿按钮）。
+        // 避免 macOS native title bar 与 React `<TopBar>` 在窗口顶端重叠。
+        // Win/Linux 不识别此字段，原生标题栏仍然存在 —— 但 React TopBar 会位于内容区顶部。
+        ...(process.platform === 'darwin'
+            ? {
+                  titleBarStyle: 'hiddenInset' as const,
+                  trafficLightPosition: { x: 12, y: 16 }
+              }
+            : {}),
         webPreferences: {
             preload: `${__dirname}/preload.js`,
             contextIsolation: true,
