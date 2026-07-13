@@ -16,7 +16,7 @@ import { execFile } from 'node:child_process';
 import { mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
 
-import { ExtractedKeyframeSchema } from '@miaoma-magicut/video-project';
+import { ExtractedKeyframeSchema } from '../../../video-project/src/index.ts';
 
 /**
  * execFile 但保留 stderr —— promisify(execFile) 默认只截 stdout,ffmpeg 把 pts_time 打 stderr。

@@ -18,8 +18,9 @@
         "test:run": "vitest run",
         "test:coverage": "vitest run --coverage",
         "probe:m3": "tsx scripts/api-probe/probe-minimax-m3.ts",
+        "probe:media": "tsx scripts/api-probe/probe-media.ts",
         "probe:tts": "tsx scripts/api-probe/probe-volcengine-tts.ts",
-        "probe:all": "pnpm probe:m3 && pnpm probe:tts"
+        "probe:all": "pnpm probe:m3 && pnpm probe:tts && pnpm probe:media"
     },
     "dependencies": {
         "@miaoma-magicut/video-agent": "workspace:*",

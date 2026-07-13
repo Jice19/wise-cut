@@ -15,8 +15,9 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
-import { MediaMetadataSchema } from '@miaoma-magicut/video-project';
 import { z } from 'zod';
+
+import { MediaMetadataSchema } from '../../../video-project/src/index.ts';
 
 const execFileAsync = promisify(execFile);
 

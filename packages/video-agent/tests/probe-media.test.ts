@@ -10,8 +10,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
-import { NoVideoStreamError, probeMedia } from '@miaoma-magicut/video-agent';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+
+import { NoVideoStreamError, probeMedia } from '../src/index.ts';
 
 const execFileAsync = promisify(execFile);
 const FFMPEG = 'ffmpeg';

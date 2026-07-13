@@ -13,11 +13,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
-import {
-    extractKeyframes,
-    ExtractKeyframesError
-} from '@miaoma-magicut/video-agent';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+
+import { extractKeyframes, ExtractKeyframesError } from '../src/index.ts';
 
 const execFileAsync = promisify(execFile);
 const FFMPEG = 'ffmpeg';
