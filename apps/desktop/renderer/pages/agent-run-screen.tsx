@@ -18,9 +18,9 @@ const AGENT_STEPS: readonly {
 export const AgentRunScreen = (): JSX.Element => {
     return (
         <AppShell pageLabel="智能体运行">
-            <div className="flex gap-6">
+            <div className="flex h-full gap-2 overflow-hidden p-2">
                 {/* Inner sidebar: agent run plan */}
-                <aside className="flex w-[280px] flex-shrink-0 flex-col gap-3 rounded-lg border border-border-subtle bg-bg-elevated p-5">
+                <aside className="flex w-[280px] flex-shrink-0 flex-col gap-3 overflow-y-auto rounded-lg border border-border-subtle bg-bg-elevated p-5">
                     <h2 className="mb-1 text-sm font-semibold text-text-primary">
                         智能体运行计划
                     </h2>
@@ -52,13 +52,13 @@ export const AgentRunScreen = (): JSX.Element => {
                             </li>
                         ))}
                     </ol>
-                    <div className="mt-auto rounded bg-brand-soft px-3 py-2 text-center text-xs text-brand">
+                    <div className="mt-auto rounded border border-brand bg-brand-soft px-3 py-2 text-center text-xs text-brand">
                         67%
                     </div>
                 </aside>
 
                 {/* Main: agent log + run controls */}
-                <div className="flex flex-1 flex-col gap-4">
+                <div className="flex min-w-0 flex-1 flex-col gap-2">
                     {/* Progress bar */}
                     <div className="rounded-lg border border-border-subtle bg-bg-elevated p-5">
                         <div className="mb-2 flex items-center justify-between text-xs text-text-secondary">
