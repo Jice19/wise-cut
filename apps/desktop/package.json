@@ -22,6 +22,8 @@
         "probe:all": "pnpm probe:m3 && pnpm probe:tts"
     },
     "dependencies": {
+        "@miaoma-magicut/video-agent": "workspace:*",
+        "@miaoma-magicut/video-project": "workspace:*",
         "electron-squirrel-startup": "^1.0.0",
         "react": "^18.3.0",
         "react-dom": "^18.3.0",
