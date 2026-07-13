@@ -1,109 +1,137 @@
-import { AppShell } from '@/components/app-shell';
+/**
+ * 创作 / 智能剪辑入口 /create —— Pencil 中 TiF37 顶部 panel + wizard 子集。
+ *
+ * 把原来的「AI 创作」占位形态重写为「智能剪辑」 Wizard：
+ * - 一句话描述 → 自动拆脚本
+ * - 4 段模板卡片快速开始
+ * - 「开始剪辑」按钮对应进 /create/runs/:runId（智能体运行）
+ *
+ * 注意：本组件**不**包 AppShell —— router 已经包了一层。
+ */
+import { useNavigate } from 'react-router-dom';
 
-const SCRIPT_CARDS: readonly {
-    label: string;
-    time: string;
+import { Icon } from '@/components/icons';
+
+const TEMPLATES: readonly {
+    title: string;
+    desc: string;
     bg: string;
 }[] = [
-    { label: '开场 · 春日向往', time: '00:00 - 00:08', bg: '#4a8dff' },
-    { label: '热闹的樱花大道', time: '00:08 - 00:20', bg: '#7b5cff' },
-    { label: '神社前的许愿', time: '00:20 - 00:32', bg: '#ff8a4a' },
-    { label: '收尾字幕', time: '00:32 - 00:40', bg: '#3fcb7a' }
+    {
+        title: 'Vlog · 春日漫步',
+        desc: '一镜到底的樱花街道叙事 + 钢琴 BGM',
+        bg: 'linear-gradient(135deg, #FFC1D8, #FFE8B0)'
+    },
+    {
+        title: '产品介绍 · 15s',
+        desc: '开场悬念 + 三段特性镜头 + 收尾 CTA',
+        bg: 'linear-gradient(135deg, #4A8DFF, #7B5CFF)'
+    },
+    {
+        title: '素材自动重组',
+        desc: '从一句话剧本拆分分镜，匹配素材并自动剪辑',
+        bg: 'linear-gradient(135deg, #00E7FF, #3FCB7A)'
+    }
 ];
 
-/**
- * 创作 Screen —— Pencil 中 TiF37。顶部 narrative prompt + 中间 script cards + 底部 placeholder timeline。
- */
 export const CreationScreen = (): JSX.Element => {
+    const navigate = useNavigate();
+
     return (
-        <AppShell pageLabel="创作">
-            <div className="mx-auto flex w-[1280px] flex-col gap-6">
-                {/* Hero */}
-                <div className="flex flex-col items-center gap-4 py-12 text-center">
-                    <h1 className="text-4xl font-bold text-text-primary">
-                        开始你的 <span className="text-brand">智能剪辑</span>
-                    </h1>
-                    <p className="text-text-secondary">
-                        用一句自然语言描述，妙码自动拆脚本、配字幕、配音乐，并重组你素材库里的现有片段。
-                    </p>
+        <div className="mx-auto flex w-[1024px] flex-col gap-8 py-6">
+            {/* Hero */}
+            <section className="flex flex-col items-center gap-3 py-12 text-center">
+                <div className="inline-flex items-center gap-2 rounded-full border border-border-subtle bg-bg-elevated px-3 py-1 text-xs text-text-secondary">
+                    <Icon name="sparkles" boxSize={4} className="text-brand" />
+                    <span>AI智能剪辑 · 一句话智能剪辑</span>
                 </div>
+                <h1 className="text-5xl font-bold leading-tight text-text-primary">
+                    描述你想要的视频
+                    <br />
+                    <span className="text-brand">智能重组精彩片段</span>
+                </h1>
+                <p className="max-w-xl text-sm text-text-secondary">
+                    全链路：素材扫描 → 创意生成分镜 → 分镜审批 → 素材匹配 → 流式
+                    TTS 配音。
+                </p>
+            </section>
 
-                {/* Prompt input */}
-                <div className="rounded-lg border border-border-subtle bg-bg-elevated p-8">
-                    <label
-                        htmlFor="narrative"
-                        className="mb-3 block text-sm text-text-secondary"
-                    >
-                        描述你想要的视频
-                    </label>
-                    <textarea
-                        id="narrative"
-                        rows={3}
-                        placeholder="例如：春日京都街头的樱花大道，背景音乐是舒缓的钢琴曲..."
-                        className="w-full resize-none rounded-md border border-border-subtle bg-bg-sunken px-4 py-3 text-sm text-text-primary placeholder:text-text-tertiary focus:border-brand focus:outline-none"
-                    />
-                    <div className="mt-4 flex items-center justify-between">
-                        <div className="flex items-center gap-2 text-xs text-text-tertiary">
-                            <span>风格：</span>
-                            <span className="rounded border border-border-subtle px-2 py-0.5 text-text-secondary">
-                                自动
-                            </span>
-                            <span>·</span>
-                            <span>配乐：</span>
-                            <span className="rounded border border-border-subtle px-2 py-0.5 text-text-secondary">
-                                自动
-                            </span>
-                        </div>
-                        <button
-                            type="button"
-                            className="rounded-md bg-brand px-8 py-2 text-sm font-semibold text-text-on-brand hover:bg-brand-dim"
+            {/* Prompt input */}
+            <section className="rounded-2xl border border-border-subtle bg-bg-elevated p-6">
+                <label
+                    htmlFor="narrative"
+                    className="mb-3 block text-sm font-semibold text-text-primary"
+                >
+                    一句话描述
+                </label>
+                <textarea
+                    id="narrative"
+                    rows={4}
+                    placeholder="例如：春日京都街头的樱花大道，主角从远处走来，背景是舒缓的钢琴曲……"
+                    className="w-full resize-none rounded-md border border-border-subtle bg-bg-sunken px-4 py-3 text-sm text-text-primary placeholder:text-text-tertiary focus:border-brand focus:outline-none"
+                />
+                <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
+                    {[
+                        { label: '风格', value: '自动' },
+                        { label: '配乐', value: '舒缓' },
+                        { label: '时长', value: '30s' },
+                        { label: '画幅', value: '9:16' },
+                        { label: '语言', value: '中文' }
+                    ].map((c) => (
+                        <span
+                            key={c.label}
+                            className="rounded border border-border-subtle bg-bg-sunken px-2.5 py-1 text-text-secondary"
                         >
-                            ▶ 开始剪辑
-                        </button>
-                    </div>
-                </div>
-
-                {/* Script cards */}
-                <div>
-                    <div className="mb-3 flex items-center justify-between">
-                        <h2 className="text-sm font-semibold text-text-primary">
-                            初始分镜
-                        </h2>
-                        <span className="text-xs text-text-tertiary">
-                            {SCRIPT_CARDS.length} 段
+                            <span className="text-text-tertiary">
+                                {c.label}：
+                            </span>
+                            <span>{c.value}</span>
                         </span>
-                    </div>
-                    <div className="flex gap-4">
-                        {SCRIPT_CARDS.map((c, i) => (
-                            <div
-                                key={c.label}
-                                className="flex h-32 w-64 flex-col gap-2 rounded-md border border-border-subtle bg-bg-elevated p-3"
-                            >
-                                <div
-                                    className="h-14 w-full rounded"
-                                    style={{ background: c.bg }}
-                                />
-                                <div className="text-xs font-semibold text-text-primary">
-                                    {i + 1}. {c.label}
-                                </div>
-                                <div className="text-[10px] text-text-tertiary">
-                                    {c.time}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
+                    ))}
+                    <div className="ml-auto" />
+                    <button
+                        type="button"
+                        onClick={() => navigate('/create/runs/run-local')}
+                        className="rounded-md bg-brand px-8 py-2 text-sm font-semibold text-text-on-brand hover:bg-brand-dim"
+                    >
+                        ▶ 一键剪辑
+                    </button>
                 </div>
+            </section>
 
-                {/* Timeline placeholder */}
-                <div className="rounded-lg border border-border-subtle bg-bg-elevated p-6">
-                    <div className="mb-3 text-xs text-text-secondary">
-                        时间线预览
-                    </div>
-                    <div className="flex h-32 items-center justify-center text-xs text-text-tertiary">
-                        时间线占位 — 后续接入 React Player / 自绘 SVG
-                    </div>
+            {/* Templates */}
+            <section>
+                <div className="mb-4 flex items-center justify-between">
+                    <h2 className="text-sm font-semibold text-text-primary">
+                        推荐模板
+                    </h2>
+                    <span className="text-xs text-text-tertiary">
+                        选一个快速开始
+                    </span>
                 </div>
-            </div>
-        </AppShell>
+                <div className="grid grid-cols-3 gap-4">
+                    {TEMPLATES.map((t) => (
+                        <button
+                            key={t.title}
+                            type="button"
+                            className="overflow-hidden rounded-lg border border-border-subtle bg-bg-elevated text-left transition hover:border-brand hover:shadow-lg"
+                        >
+                            <div
+                                className="h-28 w-full"
+                                style={{ background: t.bg }}
+                            />
+                            <div className="flex flex-col gap-1 p-3.5">
+                                <h3 className="text-sm font-bold text-text-primary">
+                                    {t.title}
+                                </h3>
+                                <p className="text-[11px] text-text-tertiary">
+                                    {t.desc}
+                                </p>
+                            </div>
+                        </button>
+                    ))}
+                </div>
+            </section>
+        </div>
     );
 };

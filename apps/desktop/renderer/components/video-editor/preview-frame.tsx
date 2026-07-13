@@ -15,7 +15,7 @@ export const PreviewHeader = ({
     title,
     duration = '00:06'
 }: PreviewHeaderProps): JSX.Element => (
-    <header className="flex h-12 items-center gap-3 border-b border-border-subtle bg-bg-base px-6">
+    <header className="flex h-12 items-center gap-3 bg-bg-base px-6">
         <span className="font-mono text-[11px] text-text-tertiary">分镜</span>
         <span className="font-mono text-sm font-bold text-brand tabular-nums">
             {String(sceneNum).padStart(2, '0')}
@@ -90,9 +90,9 @@ export const PreviewFrame = ({
 }: {
     sceneLabel?: string;
 }): JSX.Element => (
-    <div className="flex flex-1 items-center justify-center bg-bg-base px-6">
+    <div className="flex flex-1 items-stretch justify-stretch bg-bg-base p-4">
         <div
-            className="relative flex aspect-video w-full max-w-[720px] items-center justify-center overflow-hidden rounded-lg border border-border-strong"
+            className="relative flex aspect-video w-full flex-1 items-center justify-center overflow-hidden rounded-lg border border-border-strong"
             style={{
                 background:
                     'linear-gradient(135deg, #0A0A0C 0%, #1F1F22 50%, #0A0A0C 100%)'

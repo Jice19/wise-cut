@@ -6,8 +6,7 @@ import type { ReactNode } from 'react';
  * - MiddleColumn (fill)
  * - RightColumn (W=320, 严格匹配 f2yO2)
  *
- * 两侧不要 border-r / border-l：Pencil 中 ContentArea 是无边距的，让 Column 自己
- * 渲染自己的边框 / 背景，避免双层描边。
+ *  三个 column 间用 gap-2 留呼吸，不再紧贴；每个 column 自带圆角 + 边框。
  */
 
 export const ColumnLayout = ({
@@ -15,7 +14,7 @@ export const ColumnLayout = ({
 }: {
     children: ReactNode;
 }): JSX.Element => (
-    <div className="flex h-full w-full min-h-[720px] gap-0 bg-bg-base">
+    <div className="flex h-full w-full gap-2 overflow-hidden p-2">
         {children}
     </div>
 );
@@ -25,7 +24,7 @@ export const SceneColumn = ({
 }: {
     children: ReactNode;
 }): JSX.Element => (
-    <aside className="flex w-[280px] flex-shrink-0 flex-col gap-3 border-r border-border-subtle bg-bg-elevated p-5">
+    <aside className="flex w-[280px] flex-shrink-0 flex-col gap-3 overflow-y-auto rounded-lg border border-border-subtle bg-bg-elevated p-5">
         {children}
     </aside>
 );
@@ -35,7 +34,7 @@ export const MiddleColumn = ({
 }: {
     children: ReactNode;
 }): JSX.Element => (
-    <section className="flex min-w-0 flex-1 flex-col bg-bg-base">
+    <section className="flex min-w-0 flex-1 flex-col gap-2 overflow-hidden rounded-lg border border-border-subtle bg-bg-elevated">
         {children}
     </section>
 );
@@ -45,7 +44,7 @@ export const RightColumn = ({
 }: {
     children: ReactNode;
 }): JSX.Element => (
-    <aside className="flex w-[320px] flex-shrink-0 flex-col border-l border-border-subtle bg-bg-elevated">
+    <aside className="flex w-[320px] flex-shrink-0 flex-col overflow-y-auto rounded-lg border border-border-subtle bg-bg-elevated">
         {children}
     </aside>
 );

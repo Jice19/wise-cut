@@ -12,18 +12,20 @@ interface AppShellProps {
 
 /**
  * AppShell = Sidebar + TopBar + ContentArea 的固定两列布局。
- * 1920×1080 桌面设计，按 fit 缩放；用 min-w 1280 / min-h 720 保证小窗口可用性。
+ *
+ * 1920×1080 桌面设计，按 fit 缩放 —— 不强加 min-width，让内容随窗口自动撑满；
+ * 在小窗口下 Editor 三列会自然收紧。
  */
 export const AppShell = ({
     children,
     pageLabel
 }: AppShellProps): JSX.Element => {
     return (
-        <div className="flex h-screen w-screen min-w-[1280px] min-h-[720px] overflow-hidden bg-bg-base text-text-primary">
+        <div className="flex h-screen w-screen overflow-hidden bg-bg-base p-2 text-text-primary">
             <Sidebar />
-            <div className="flex h-full flex-1 flex-col">
+            <div className="flex h-full min-w-0 flex-1 flex-col gap-2">
                 <TopBar pageLabel={pageLabel} />
-                <main className="flex-1 overflow-auto px-10 py-7">
+                <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-border-subtle bg-bg-base">
                     {children}
                 </main>
             </div>

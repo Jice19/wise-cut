@@ -18,7 +18,7 @@ interface NavItemDef {
  */
 const NAV: readonly NavItemDef[] = [
     { to: '/workspace', label: '工作台', icon: 'layout-dashboard' },
-    { to: '/create', label: '创作', icon: 'sparkles' },
+    { to: '/create', label: '智能剪辑', icon: 'sparkles' },
     { to: '/editor', label: '编辑器', icon: 'scissors' },
     { to: '/export', label: '导出', icon: 'upload' }
 ] as const;

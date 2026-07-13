@@ -35,7 +35,7 @@ export const WorkspaceCreateView = (): ReactNode => {
             <section className="flex flex-col items-center gap-3 py-12 text-center">
                 <div className="inline-flex items-center gap-2 rounded-full border border-border-subtle bg-bg-elevated px-3 py-1 text-xs text-text-secondary">
                     <Icon name="sparkles" boxSize={4} className="text-brand" />
-                    <span>妙码智能剪辑 · 一句话智能剪辑</span>
+                    <span>AI智能剪辑 · 一句话智能剪辑</span>
                 </div>
                 <h1 className="text-5xl font-bold leading-tight text-text-primary">
                     描述你想要的视频

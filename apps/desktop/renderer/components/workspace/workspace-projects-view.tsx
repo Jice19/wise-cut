@@ -25,7 +25,7 @@ const PROJECTS: readonly {
     },
     {
         id: 'p2',
-        title: '产品介绍 — 妙码 AI',
+        title: '产品介绍 —  AI智能剪辑',
         badge: '16:9',
         meta: '01:18 · 2026-07-09',
         bg: 'linear-gradient(135deg, #00e7ff, #3fcb7a)'
@@ -62,7 +62,7 @@ const PROJECTS: readonly {
 
 export const WorkspaceProjectsView = (): ReactNode => {
     return (
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-6 px-6 py-6">
             {/* Hero header */}
             <header className="flex h-[140px] items-end justify-between rounded-lg bg-bg-elevated px-8 py-6">
                 <div>
@@ -70,7 +70,7 @@ export const WorkspaceProjectsView = (): ReactNode => {
                         欢迎回来，开启今天的创作
                     </h1>
                     <p className="mt-2 text-sm text-text-secondary">
-                        从一个自然语言描述开始，妙码智能剪辑自动重组你素材库里的精彩片段
+                        从一个自然语言描述开始，AI智能剪辑自动重组你素材库里的精彩片段
                     </p>
                 </div>
                 <button

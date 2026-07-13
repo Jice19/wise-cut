@@ -71,7 +71,7 @@ export const routes: RouteObject[] = [
     {
         path: '/create',
         element: (
-            <AppShell pageLabel="创作">
+            <AppShell pageLabel="智能剪辑">
                 <CreationScreen />
             </AppShell>
         )
