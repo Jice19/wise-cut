@@ -11,8 +11,10 @@ const here = dirname(fileURLToPath(import.meta.url));
 // 然后在 require('@tailwindcss/vite') 时报 "ESM file cannot be loaded by require"。
 export default defineConfig({
     // renderer 入口 index.html 位于 apps/desktop/renderer/，需要让 vite 把这里
-    // 当作根目录，才能把 `/main.tsx` / `tailwind` 等模块路由正确解析。
-    root: 'renderer',
+    // 当作根目录。改成绝对路径,避免 electron-forge plugin-vite 跑 vite
+    // 时 cwd 跟仓库根目录不同时 'renderer' 解析到错误位置(导致
+    // 加载根路径返回 404,renderer 拿到空白页)。
+    root: resolve(here, 'renderer'),
     resolve: {
         // 与 tsconfig.json 的 `paths: { "@/*": ["renderer/*"] }` 对齐——vite 不读 tsconfig，
         // 必须显式声明 alias。

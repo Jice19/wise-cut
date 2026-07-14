@@ -1,6 +1,11 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 
 import { IPC } from '../shared/ipc';
+import { createVideoAgentController } from './video-agent-controller-factory';
+import {
+    registerVideoAgentIpc,
+    type VideoAgentController
+} from './video-agent-ipc';
 
 const waitForServer = async (
     url: string,
@@ -93,7 +98,7 @@ const createMainWindow = (): BrowserWindow => {
     return win;
 };
 
-const registerIpcHandlers = (): void => {
+const registerIpcHandlers = (controller: VideoAgentController): void => {
     ipcMain.handle(IPC.APP_GET_VERSION, () => app.getVersion());
     ipcMain.handle(IPC.APP_GET_PLATFORM, () => process.platform);
 
@@ -110,38 +115,15 @@ const registerIpcHandlers = (): void => {
         BrowserWindow.fromWebContents(event.sender)?.close();
     });
 
-    // video-agent — 批 1 commit 0c stub,handler 都抛 "not implemented"。
-    // 真功能在 commit 5(demo controller)和 commit 6(LangGraph 真接)落。
-    // 这一步的目的是把整条 IPC 链路打通,renderer 调 invoke 不会再因为
-    // "No handler registered" 而崩溃,便于后续 commit 渐进式替换实现。
-    ipcMain.handle(IPC.VIDEO_AGENT_START, () => {
-        throw new Error('videoAgent.start not implemented (commit 5+)');
-    });
-    ipcMain.handle(IPC.VIDEO_AGENT_APPROVE, () => {
-        throw new Error('videoAgent.approve not implemented (commit 5+)');
-    });
-    ipcMain.handle(IPC.VIDEO_AGENT_CANCEL, () => {
-        throw new Error('videoAgent.cancel not implemented (commit 5+)');
-    });
-    ipcMain.handle(IPC.VIDEO_AGENT_REGENERATE_SCENE, () => {
-        throw new Error(
-            'videoAgent.regenerateScene not implemented (commit 5+)'
-        );
-    });
-    ipcMain.handle(IPC.VIDEO_AGENT_REGENERATE_VOICES, () => {
-        throw new Error(
-            'videoAgent.regenerateVoices not implemented (commit 5+)'
-        );
-    });
-    ipcMain.handle(IPC.VIDEO_AGENT_REQUEST_FULL_STATE, () => {
-        throw new Error(
-            'videoAgent.requestFullState not implemented (commit 6+)'
-        );
-    });
+    // video-agent — commit 5 接入 demo controller,把 6 个 stub
+    // 替换成真 handler(emit 事件流到 renderer)。
+    // commit 6 起 factory 切到 langgraph,这里不变。
+    registerVideoAgentIpc({ controller, handle: ipcMain.handle });
 };
 
 app.whenReady().then(() => {
-    registerIpcHandlers();
+    const controller = createVideoAgentController();
+    registerIpcHandlers(controller);
     createMainWindow();
 
     app.on('activate', () => {
