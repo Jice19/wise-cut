@@ -20,6 +20,7 @@ import {
     AssetAnalysisSchema
 } from '../../../../video-project/src/index.ts';
 import {
+    buildKeyframeParams,
     extractKeyframes,
     ExtractKeyframesError
 } from '../../media/extract-keyframes.ts';
@@ -54,6 +55,25 @@ export type AnalyzeAssetsInput = {
 };
 
 /**
+ * commit 11 抽帧策略 —— 把用户 options 转成等效 durationSec 让
+ * buildKeyframeParams 重新算。用户设的 sampleIntervalSec 直接覆盖,maxFrames
+ * 受 20 帧上限约束。
+ */
+const applyOverride = (
+    durationSec: number,
+    options: NonNullable<AnalyzeAssetsInput['extractKeyframesOptions']>
+): number => {
+    if (options.sampleIntervalSec !== undefined) {
+        // 强制用用户 sampleIntervalSec,无视 duration 阈值
+        // maxFrames 用用户传或按新 sampleIntervalSec 算
+        return options.maxFrames !== undefined
+            ? options.maxFrames
+            : Math.ceil(durationSec / options.sampleIntervalSec);
+    }
+    return durationSec;
+};
+
+/**
  * 单个 asset 失败时,产出一个"空描述"的 AssetAnalysis,让 pipeline 继续。
  */
 const buildDegradedAssetAnalysis = (input: {
@@ -75,10 +95,8 @@ const buildDegradedAssetAnalysis = (input: {
 export const analyzeAssets = async (
     input: AnalyzeAssetsInput
 ): Promise<AssetAnalysis[]> => {
-    const sampleIntervalSec =
-        input.extractKeyframesOptions?.sampleIntervalSec ?? 2;
-    const maxFrames = input.extractKeyframesOptions?.maxFrames ?? 6;
-
+    // commit 11 抽帧策略:按视频时长自适应(< 10s 用 1s/帧,否则 2s/帧,max 20)
+    // 用户可通过 extractKeyframeOptions 覆盖
     const results: AssetAnalysis[] = [];
 
     for (const asset of input.assets) {
@@ -87,6 +105,21 @@ export const analyzeAssets = async (
                 ffprobePath: input.ffprobePath,
                 filePath: asset.filePath
             });
+
+            const durationSec = metadata.durationMs / 1000;
+            const overrideOptions = input.extractKeyframesOptions;
+            let sampleIntervalSec: number;
+            let maxFrames: number;
+            if (overrideOptions?.sampleIntervalSec !== undefined) {
+                sampleIntervalSec = overrideOptions.sampleIntervalSec;
+                maxFrames =
+                    overrideOptions.maxFrames ??
+                    Math.ceil(durationSec / sampleIntervalSec);
+            } else {
+                const params = buildKeyframeParams(durationSec);
+                sampleIntervalSec = params.sampleIntervalSec;
+                maxFrames = overrideOptions?.maxFrames ?? params.maxFrames;
+            }
 
             const keyframes = await extractKeyframes({
                 ffmpegPath: input.ffmpegPath,

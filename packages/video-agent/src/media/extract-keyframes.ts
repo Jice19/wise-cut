@@ -52,6 +52,31 @@ export class ExtractKeyframesError extends Error {
 }
 
 /**
+ * commit 11 抽帧策略 —— 按视频时长自适应:
+ *   - duration < 10s → 1s/帧(细节多)
+ *   - duration >= 10s → 2s/帧(均匀覆盖)
+ *   - maxFrames = min(20, ceil(durationSec / sampleIntervalSec))
+ *     上限 20 帧(平衡 LLM 调用成本 + 视频覆盖度)
+ *
+ * 例:
+ *   - 5s 视频 → sample=1, maxFrames=5
+ *   - 30s 视频 → sample=2, maxFrames=15
+ *   - 60s+ 视频 → sample=2, maxFrames=20
+ */
+export const buildKeyframeParams = (
+    durationSec: number
+): {
+    maxFrames: number;
+    sampleIntervalSec: number;
+} => {
+    const safeDuration = Math.max(0, durationSec);
+    const sampleIntervalSec = safeDuration < 10 ? 1 : 2;
+    const computed = Math.ceil(safeDuration / sampleIntervalSec);
+    const maxFrames = Math.min(20, Math.max(1, computed));
+    return { maxFrames, sampleIntervalSec };
+};
+
+/**
  * 抽帧参数。
  *
  * `maxFrames` 是软上限:实际抽帧数 = min(maxFrames, ceil(durationSec / sampleIntervalSec))。
