@@ -60,15 +60,28 @@ export const AgentRunScreen = (): JSX.Element => {
     const [logLines, setLogLines] = useState<
         { ts: number; type: string; text: string }[]
     >([]);
+    const [brief, setBrief] = useState('春日京都樱花');
+    const [sourceDirectory, setSourceDirectory] = useState('');
+
+    const handleSelectDirectory = useCallback(async (): Promise<void> => {
+        const path = await window.miaomaAPI.selectDirectory({
+            title: '选择视频素材目录'
+        });
+        if (path) setSourceDirectory(path);
+    }, []);
 
     const handleStart = useCallback(async (): Promise<void> => {
+        if (!sourceDirectory) {
+            alert('请先选择视频素材目录');
+            return;
+        }
         setLogLines([]);
         await start({
-            brief: '春日京都樱花',
+            brief,
             runId: `run-${Date.now()}`,
-            sourceAssetDirectory: '/Users/apple/Movies/sample-videos'
+            sourceAssetDirectory: sourceDirectory
         });
-    }, [start]);
+    }, [brief, sourceDirectory, start]);
 
     // 累积事件日志 — 监听 nodes/projectPath 变化追加
     const nodesRef = nodes;
@@ -172,6 +185,54 @@ export const AgentRunScreen = (): JSX.Element => {
                                 </div>
                             ))
                         )}
+                    </div>
+
+                    <div className="flex flex-col gap-3 rounded-lg border border-border-subtle bg-bg-elevated p-4">
+                        <div className="flex items-center gap-3">
+                            <label
+                                htmlFor="brief-input"
+                                className="w-20 text-xs text-text-tertiary"
+                            >
+                                创意描述
+                            </label>
+                            <input
+                                id="brief-input"
+                                type="text"
+                                value={brief}
+                                onChange={(e) => setBrief(e.target.value)}
+                                disabled={
+                                    runStatus === 'running' ||
+                                    runStatus === 'awaiting_approval'
+                                }
+                                placeholder="一句话描述视频主题"
+                                className="flex-1 rounded-md border border-border-subtle bg-bg-sunken px-3 py-1.5 text-sm text-text-primary placeholder:text-text-tertiary focus:border-brand focus:outline-none disabled:opacity-50"
+                            />
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <label className="w-20 text-xs text-text-tertiary">
+                                素材目录
+                            </label>
+                            <div className="flex flex-1 items-center gap-2">
+                                <input
+                                    type="text"
+                                    readOnly
+                                    value={sourceDirectory}
+                                    placeholder="点击右侧按钮选择含 mp4 的目录"
+                                    className="flex-1 truncate rounded-md border border-border-subtle bg-bg-sunken px-3 py-1.5 text-sm text-text-secondary placeholder:text-text-tertiary"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => void handleSelectDirectory()}
+                                    disabled={
+                                        runStatus === 'running' ||
+                                        runStatus === 'awaiting_approval'
+                                    }
+                                    className="rounded-md border border-border-subtle bg-bg-sunken px-3 py-1.5 text-sm text-text-secondary hover:bg-bg-hover disabled:opacity-50"
+                                >
+                                    选择目录
+                                </button>
+                            </div>
+                        </div>
                     </div>
 
                     <div className="flex items-center justify-end gap-3 rounded-lg border border-border-subtle bg-bg-elevated p-4">

@@ -9,6 +9,7 @@ export const IPC = {
     WINDOW_MINIMIZE: 'window:minimize',
     WINDOW_MAXIMIZE: 'window:maximize',
     WINDOW_CLOSE: 'window:close',
+    DIALOG_SELECT_DIRECTORY: 'dialog:select-directory',
 
     // 主进程 → 渲染(send)
     MENU_COMMAND: 'menu:command',
@@ -134,6 +135,8 @@ export interface MiaomaAPI {
     maximize: () => Promise<void>;
     close: () => Promise<void>;
     onMenuCommand: (handler: (command: string) => void) => () => void;
+    /** 弹原生选目录对话框,返回选中路径或 null(用户取消) */
+    selectDirectory: (input: { title?: string }) => Promise<string | null>;
 
     // video-agent
     startVideoAgent: (input: VideoCreationInput) => Promise<void>;

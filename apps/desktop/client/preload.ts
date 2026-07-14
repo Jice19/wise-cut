@@ -23,6 +23,8 @@ const api: MiaomaAPI = {
         // 返回取消订阅函数,供 React useEffect 清理
         return () => ipcRenderer.removeListener(IPC.MENU_COMMAND, wrapped);
     },
+    selectDirectory: (input: { title?: string }) =>
+        ipcRenderer.invoke(IPC.DIALOG_SELECT_DIRECTORY, input),
 
     // video-agent — 5 invoke 把渲染层操作转发给主进程 controller,
     // 1 onEvent 订阅主进程推送的 AgentRunEvent 流。

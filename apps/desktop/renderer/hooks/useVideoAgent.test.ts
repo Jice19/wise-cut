@@ -32,13 +32,13 @@ const baseEvent = {
 } as const;
 
 const evt = (
-    e: Omit<AgentRunEvent, 'seq' | 'timestamp'> & { runId?: string }
+    e: Record<string, unknown> & { type: AgentRunEvent['type']; runId?: string }
 ): AgentRunEvent =>
     ({
         ...baseEvent,
         ...e,
         runId: e.runId ?? baseEvent.runId
-    }) as AgentRunEvent;
+    }) as unknown as AgentRunEvent;
 
 const dispatch = (
     state: ReturnType<typeof videoAgentReducer>,

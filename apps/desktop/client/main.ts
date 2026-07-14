@@ -102,6 +102,21 @@ const registerIpcHandlers = (controller: VideoAgentController): void => {
     ipcMain.handle(IPC.APP_GET_VERSION, () => app.getVersion());
     ipcMain.handle(IPC.APP_GET_PLATFORM, () => process.platform);
 
+    // 原生选目录对话框 —— commit 9 暴露给 renderer 让 UI 选素材目录
+    ipcMain.handle(
+        IPC.DIALOG_SELECT_DIRECTORY,
+        async (event, input: { title?: string }) => {
+            const { dialog } = await import('electron');
+            const win = BrowserWindow.fromWebContents(event.sender);
+            const result = await dialog.showOpenDialog(win ?? undefined!, {
+                properties: ['openDirectory', 'createDirectory'],
+                title: input?.title ?? '选择素材目录'
+            });
+            if (result.canceled || result.filePaths.length === 0) return null;
+            return result.filePaths[0];
+        }
+    );
+
     ipcMain.handle(IPC.WINDOW_MINIMIZE, (event) => {
         BrowserWindow.fromWebContents(event.sender)?.minimize();
     });

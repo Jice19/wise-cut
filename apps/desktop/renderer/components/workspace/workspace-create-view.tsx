@@ -1,4 +1,5 @@
 import { type ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import { Icon } from '@/components/icons';
 
@@ -29,6 +30,8 @@ const TEMPLATES: readonly {
  * 触发智能体 Wizard —— 在此输入 prompt 进入 LangGraph 工作流。
  */
 export const WorkspaceCreateView = (): ReactNode => {
+    const navigate = useNavigate();
+
     return (
         <div className="mx-auto flex w-[1024px] flex-col gap-8 py-6">
             {/* Hero */}
@@ -83,6 +86,7 @@ export const WorkspaceCreateView = (): ReactNode => {
                     <div className="ml-auto" />
                     <button
                         type="button"
+                        onClick={() => navigate('/create/runs/run-local')}
                         className="rounded-md bg-brand px-8 py-2 text-sm font-semibold text-text-on-brand hover:bg-brand-dim"
                     >
                         ▶ 开始创作

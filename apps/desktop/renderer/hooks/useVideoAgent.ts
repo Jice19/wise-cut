@@ -71,9 +71,10 @@ export const videoAgentReducer = (
     state: VideoAgentState,
     action: Action
 ): VideoAgentState => {
-    if (action.type === 'reset') return INITIAL_STATE;
+    if ('type' in action && action.type === 'reset') return INITIAL_STATE;
 
-    const evt = action.event;
+    const evt = 'event' in action ? action.event : null;
+    if (!evt) return state;
     switch (evt.type) {
         case 'run.started':
             return {
@@ -162,7 +163,6 @@ export const videoAgentReducer = (
 
         default: {
             // exhaustiveness check
-            const _exhaustive: never = evt;
             return state;
         }
     }

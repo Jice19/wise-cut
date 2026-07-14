@@ -531,15 +531,31 @@ export const createLangGraphVideoAgentController = (options: {
             if (!modelProvider) {
                 const apiKey =
                     process.env['ARK_API_KEY'] ?? process.env['API_KEY'] ?? '';
-                if (!apiKey) {
-                    throw new Error(
-                        'ARK_API_KEY / API_KEY env not set; cannot construct model provider'
+                if (apiKey) {
+                    const { MinimaxM3ModelProvider } = await import(
+                        '@miaoma-magicut/video-agent'
                     );
+                    modelProvider = new MinimaxM3ModelProvider({ apiKey });
+                } else {
+                    // 无 LLM key 时用 stub provider —— 三个 LLM 节点内置
+                    // fallback 路径(creative_brief / plan_scenes /
+                    // match_assets)会用 state.input.brief 直接生成基础产物,
+                    // pipeline 仍能跑完到 save_project 落盘完整 VideoProject。
+                    // eslint-disable-next-line no-console
+                    console.warn(
+                        '[video-agent] ARK_API_KEY not set, using no-LLM stub (fallback path)'
+                    );
+                    modelProvider = {
+                        describeFrames: async () => {
+                            throw new Error(
+                                'no LLM key — analyze_assets degraded'
+                            );
+                        },
+                        generateText: async () => {
+                            throw new Error('no LLM key — node fallback');
+                        }
+                    };
                 }
-                const { MinimaxM3ModelProvider } = await import(
-                    '@miaoma-magicut/video-agent'
-                );
-                modelProvider = new MinimaxM3ModelProvider({ apiKey });
             }
 
             const sequencedEmit = createSequencedEventEmitter({
