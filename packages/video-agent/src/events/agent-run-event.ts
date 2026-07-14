@@ -100,10 +100,18 @@ const InterruptResumedSchema = z.object({
     type: z.literal('interrupt.resumed')
 });
 
+const ApprovalRequiredSchema = z.object({
+    ...BaseEventFields,
+    approval: z.unknown(),
+    type: z.literal('approval.required')
+});
+
 const RunCompletedSchema = z.object({
     ...BaseEventFields,
     durationMs: z.number().int().nonnegative(),
+    projectId: z.string(),
     projectPath: z.string(),
+    savedProjectPath: z.string().optional(),
     type: z.literal('run.completed')
 });
 
@@ -131,6 +139,7 @@ export const AgentRunEventSchema = z.discriminatedUnion('type', [
     VoiceRegenerationProgressSchema,
     InterruptSchema,
     InterruptResumedSchema,
+    ApprovalRequiredSchema,
     RunCompletedSchema,
     RunFailedSchema,
     RunCancelledSchema

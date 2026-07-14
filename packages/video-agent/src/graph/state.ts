@@ -1,20 +1,17 @@
 /**
- * LangGraph StateGraph 的状态 schema —— Annotation.Root 定义 10 个 field
- * (plan §2 / commit 6.5):
+ * LangGraph StateGraph 的状态 schema —— Annotation.Root 定义 10 个 field:
  *   input / assets / brief / scenes / matches / voices / project /
  *   savedProjectPath / errors / status
  *
- * 用法:
- *   const graph = new StateGraph(VideoCreationState)
- *       .addNode('scan_assets', scanAssetsNode)
- *       .addNode('analyze_assets', analyzeAssetsNode)
- *       .addNode('creative_brief', creativeBriefNode)
- *       ...
- *       .addEdge(START, 'scan_assets')
- *       .compile();
- *   const result = await graph.invoke(initialState, {
- *       configurable: { thread_id: runId }
- *   });
+ * 同时 export `SceneApprovalRequest` / `SceneApprovalResume` 类型
+ * ( 项目规范把这两个跟 state 放一起,scene_approval 节点用
+ * interrupt<>() 需要它们)。
+ *
+ *  项目 graph 目录规范 4 文件:
+ *   - state.ts (本文件)
+ *   - checkpoint.ts (createVideoCreationCheckpointer)
+ *   - nodes.ts (createVideoCreationNodes 工厂)
+ *   - create-video-creation-graph.ts (start / resume runner)
  */
 
 import { Annotation } from '@langchain/langgraph';
@@ -37,6 +34,7 @@ export type VideoCreationInput = {
     selectedVoiceType?: string;
     sourceAssetDirectory: string;
 };
+
 export type RunStatus =
     | 'idle'
     | 'running'
@@ -45,8 +43,12 @@ export type RunStatus =
     | 'failed'
     | 'cancelled';
 
-export const VideoCreationState = Annotation.Root({
-    input: Annotation<VideoCreationInput>(),
+// SceneApprovalRequest / SceneApprovalResume 在 node-payloads.ts 定义
+// (保持与 CreativeBriefPayload / ScenePlannerPayload / AssetMatcherPayload
+// 同文件,便于 LLM raw payload 类型集中管理)。
+
+export const VideoCreationStateAnnotation = Annotation.Root({
+    input: Annotation<VideoCreationInput | undefined>(),
     assets: Annotation<AssetAnalysis[]>(),
     brief: Annotation<CreativeBrief | undefined>(),
     scenes: Annotation<Scene[]>(),
@@ -58,14 +60,14 @@ export const VideoCreationState = Annotation.Root({
     status: Annotation<RunStatus>()
 });
 
-export type VideoCreationStateType = typeof VideoCreationState.State;
+export type VideoCreationGraphState = typeof VideoCreationStateAnnotation.State;
 
 /**
  * 初始状态工厂 —— commit 6.5 阶段只填 input,其它 9 个 field 用 undefined/[]。
  */
 export const buildInitialState = (
     input: VideoCreationInput
-): VideoCreationStateType => ({
+): VideoCreationGraphState => ({
     assets: [],
     brief: undefined,
     errors: [],

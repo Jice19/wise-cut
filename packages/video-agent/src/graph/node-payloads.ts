@@ -57,4 +57,4 @@ export type SceneApprovalRequest = {
     type: 'scene-plan';
 };
 
-export type SceneApprovalResume = { approved: boolean };
+export type SceneApprovalResume = { approved: boolean; feedback?: string };

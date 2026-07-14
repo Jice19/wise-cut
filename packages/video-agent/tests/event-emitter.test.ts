@@ -28,6 +28,7 @@ describe('createSequencedEventEmitter', () => {
         emit({
             type: 'run.completed',
             durationMs: 1000,
+            projectId: 'proj-r1',
             projectPath: '/tmp/x.json'
         });
 

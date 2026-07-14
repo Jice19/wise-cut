@@ -49,6 +49,8 @@ export type SequencedEventEmitter = (event: {
     [key: string]: unknown;
 }) => void;
 
+export type AgentRunEventEmitter = (event: AgentRunEvent) => void;
+
 export type AgentRunEventSink = (event: AgentRunEvent) => void;
 
 export const createSequencedEventEmitter = (options: {
@@ -79,4 +81,20 @@ export const createSequencedEventEmitter = (options: {
 
         options.sink(redactEventPayload(safe.data));
     };
+};
+
+/**
+ * 序列化 Error → string,用于 emit node.failed 事件 / 落盘错误日志。
+ *  项目模式:runner 端用这个 catch error 输出。
+ */
+export const serializeError = (error: unknown): string => {
+    if (error instanceof Error) {
+        return `${error.name}: ${error.message}`;
+    }
+    if (typeof error === 'string') return error;
+    try {
+        return JSON.stringify(error);
+    } catch {
+        return String(error);
+    }
 };

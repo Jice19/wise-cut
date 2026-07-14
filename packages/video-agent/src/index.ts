@@ -70,46 +70,38 @@ export {
     type AgentRunEventType
 } from './events/agent-run-event';
 export {
+    type AgentRunEventEmitter,
     type AgentRunEventSink,
     createSequencedEventEmitter,
     redactEventPayload,
     redactSecrets,
-    type SequencedEventEmitter
+    type SequencedEventEmitter,
+    serializeError
 } from './events/event-emitter';
 
-// Phase 3 commit 6.5 —— graph 子模块(完整 10 节点)
+// Phase 3 commit 10 —— graph 子模块( 项目 4 文件规范)
+export { createVideoCreationCheckpointer } from './graph/checkpoint';
 export {
-    createMemoryCheckpointer,
-    type VideoCreationCheckpointer
-} from './graph/checkpoint';
-export {
-    Command,
-    type CompiledVideoCreationGraph,
     createVideoCreationGraph,
-    type VideoCreationStateType
-} from './graph/graph';
-export type {
-    AssetMatcherPayload,
-    CreativeBriefPayload,
-    SceneApprovalRequest,
-    SceneApprovalResume,
-    ScenePlannerPayload
-} from './graph/node-payloads';
-export type { NodeRuntime } from './graph/node-runtime';
+    listProjects,
+    type VideoCreationGraphResult,
+    type VideoCreationGraphRunner
+} from './graph/create-video-creation-graph';
 export {
-    analyzeAssetsNode,
-    assembleTimelineNode,
-    creativeBriefNode,
-    matchAssetsNode,
-    planScenesNode,
-    saveProjectNode,
-    scanAssetsNode,
-    sceneApprovalNode,
-    synthesizeVoiceNode,
-    validateProjectNode
-} from './graph/nodes';
+    type AssetMatcherPayload,
+    type CreativeBriefPayload,
+    type SceneApprovalRequest as SceneApprovalRequestPayload,
+    type SceneApprovalResume as SceneApprovalResumePayload,
+    type ScenePlannerPayload
+} from './graph/node-payloads';
+export { createVideoCreationNodes, setModelProvider } from './graph/nodes';
 export {
     buildInitialState,
     type RunStatus,
-    type VideoCreationInput
+    type SceneApprovalRequest,
+    type SceneApprovalResume,
+    type VideoCreationGraphState,
+    type VideoCreationInput,
+    VideoCreationStateAnnotation
 } from './graph/state';
+export { Command } from '@langchain/langgraph';
