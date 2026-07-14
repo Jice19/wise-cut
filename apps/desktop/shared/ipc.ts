@@ -13,18 +13,18 @@ export const IPC = {
     // 主进程 → 渲染(send)
     MENU_COMMAND: 'menu:command',
 
-    // video-agent 流水线(plan §2.6)
+    // video-agent 流水线 invoke
     VIDEO_AGENT_START: 'video-agent:start',
     VIDEO_AGENT_APPROVE: 'video-agent:approve',
     VIDEO_AGENT_CANCEL: 'video-agent:cancel',
     VIDEO_AGENT_REGENERATE_SCENE: 'video-agent:regenerate-scene',
     VIDEO_AGENT_REGENERATE_VOICES: 'video-agent:regenerate-voices',
 
-    // video-agent 主 → 渲染 推送(plan §2.6:状态流 + 日志流)
-    VIDEO_AGENT_STATUS: 'video-agent:status',
-    VIDEO_AGENT_LOG: 'video-agent:log',
+    // video-agent 主 → 渲染 推送(commit 0a 合并为单 channel + 13 事件 union)
+    VIDEO_AGENT_EVENT: 'video-agent:event',
+    VIDEO_AGENT_REQUEST_FULL_STATE: 'video-agent:request-full-state',
 
-    // 导出流水线(plan §4)
+    // 导出流水线
     EXPORT_START: 'export:start',
     EXPORT_PROGRESS: 'export:progress',
     EXPORT_CANCEL: 'export:cancel'
@@ -33,53 +33,84 @@ export const IPC = {
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];
 
 /**
- * video-agent 流水线状态阶段(plan §6 + §4.6 phase 字段)。
+ * video-agent 流水线 13 种事件 discriminated union(plan §4 / long-task-event-stream.md §2)
  *
- *   idle    - 未启动
- *   scanning-  scan_assets
- *   analyzing  analyze_assets(probeMedia + extractKeyframes + describeFrames)
- *   briefing  creative_brief
- *   planning   plan_scenes
- *   scoring    quality_scoring
- *   matching   match_assets
- *   voicing    synthesize_voice
- *   bgm        auto_bgm
- *   cutting    beat_cut
- *   assembling assemble_timeline
- *   awaiting-approval - 7 个 step 都跑完,等用户在 UI 点"批准"
- *   completed - 用户已批准,VideoProject 落盘
- *   cancelled - 用户中途取消
- *   failed    - 任一 step 失败
+ * 所有事件继承 base 字段:{ runId, seq, timestamp }。
+ * 单一 channel `VIDEO_AGENT_EVENT` 推所有事件,前端按 `type` discriminated switch。
  */
-export type VideoAgentPhase =
-    | 'analyzing'
-    | 'assembling'
-    | 'awaiting-approval'
-    | 'bgm'
-    | 'briefing'
-    | 'cancelled'
-    | 'completed'
-    | 'cutting'
-    | 'failed'
-    | 'idle'
-    | 'matching'
-    | 'planning'
-    | 'scanning'
-    | 'scoring'
-    | 'voicing';
-
-export type VideoAgentStatusEvent = {
-    phase: VideoAgentPhase;
-    progress: number; // 0..1
+export type AgentRunEventBase = {
     runId: string;
+    seq: number;
+    timestamp: number;
 };
 
-export type VideoAgentLogEvent = {
-    level: 'debug' | 'error' | 'info' | 'warn';
-    message: string;
+export type AgentRunEvent = AgentRunEventBase &
+    (
+        | { type: 'run.started'; input: VideoCreationInput }
+        | { type: 'run.completed'; projectPath: string; durationMs: number }
+        | { type: 'run.failed'; error: string; stage?: string }
+        | { type: 'run.cancelled' }
+        | { type: 'node.started'; nodeName: string; nodeLabel: string }
+        | { type: 'node.completed'; nodeName: string; durationMs: number }
+        | { type: 'node.failed'; nodeName: string; error: string }
+        | {
+              type: 'node.progress';
+              nodeName: string;
+              progress: number;
+              message: string;
+          }
+        | { type: 'llm.chunk'; nodeName: string; content: string }
+        | { type: 'llm.completed'; nodeName: string; tokenCount: number }
+        | {
+              type: 'voice.regeneration.progress';
+              current: number;
+              total: number;
+              percent: number;
+          }
+        | {
+              type: 'interrupt';
+              interruptType: 'scene_approval';
+              payload: SceneApprovalRequest;
+          }
+        | { type: 'interrupt.resumed'; interruptType: string }
+    );
+
+/**
+ * scene_approval interrupt payload(plan §3 / long-task-event-stream.md §5)
+ */
+export type SceneApprovalRequest = {
+    type: 'scene-plan';
+    payload: {
+        brief?: {
+            title: string;
+            summary: string;
+            audience: string;
+            tone: string;
+            keyMessages: string[];
+        };
+        scenes: {
+            sceneId: string;
+            startMs: number;
+            endMs: number;
+            narration: string;
+            visualBrief: string;
+        }[];
+    };
+};
+
+export type SceneApprovalResume = { approved: boolean };
+
+/**
+ * 用户输入(commit 6 起 VideoCreationInput 完整版落 schema)
+ */
+export type VideoCreationInput = {
+    brief: string;
     runId: string;
-    step?: string;
-    timestampMs: number;
+    sourceAssetDirectory: string;
+    voiceConfig?: {
+        provider: 'volcengine-seed-tts';
+        voiceId: string;
+    };
 };
 
 export type ExportPhase =
@@ -90,7 +121,6 @@ export type ExportPhase =
     | 'rendering';
 
 export type ExportProgressEvent = {
-    /** 0..100,与 ffmpeg `-progress pipe:1` 的 out_time 同步 */
     percent: number;
     phase: ExportPhase;
     runId: string;
@@ -105,22 +135,21 @@ export interface MiaomaAPI {
     close: () => Promise<void>;
     onMenuCommand: (handler: (command: string) => void) => () => void;
 
-    // video-agent —— 本阶段(commit 4)只声明类型,不接主进程实现
-    // 主进程侧 video-agent-ipc.ts 在 commit 5+ 落,届时 invoke 才不抛 "no handler"
-    startVideoAgent: (input: { brief: string; runId: string }) => Promise<void>;
-    approveVideoAgent: (input: { runId: string }) => Promise<void>;
+    // video-agent
+    startVideoAgent: (input: VideoCreationInput) => Promise<void>;
+    approveVideoAgent: (input: {
+        runId: string;
+        approved: boolean;
+    }) => Promise<void>;
     cancelVideoAgent: (input: { runId: string }) => Promise<void>;
     regenerateVideoAgentScene: (input: {
         runId: string;
         sceneId: string;
+        feedback?: string;
     }) => Promise<void>;
     regenerateVideoAgentVoices: (input: { runId: string }) => Promise<void>;
-    onVideoAgentStatus: (
-        handler: (event: VideoAgentStatusEvent) => void
-    ) => () => void;
-    onVideoAgentLog: (
-        handler: (event: VideoAgentLogEvent) => void
-    ) => () => void;
+    onVideoAgentEvent: (handler: (event: AgentRunEvent) => void) => () => void;
+    requestVideoAgentFullState: (input: { runId: string }) => Promise<unknown>;
 
     // export —— commit 6/9 落
     startExport: (input: {
