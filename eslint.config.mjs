@@ -56,6 +56,10 @@ export default tseslint.config(
             '@typescript-eslint/array-type': 'error',
             '@typescript-eslint/no-for-in-array': 'error',
             '@typescript-eslint/no-explicit-any': 'off',
+            '@typescript-eslint/no-unused-vars': [
+                'warn',
+                { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }
+            ],
             'no-console': 'error',
 
             // import 排序（5 段分组）

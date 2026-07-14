@@ -1,18 +1,23 @@
 /**
- * video-agent 主进程 controller —— commit 5 demo 版。
+ * video-agent 主进程 controller —— commit 6 阶段。
  *
- * 不依赖 LangGraph,用 setTimeout 模拟 10 节点流水线进度,emit 13 种
- * AgentRunEvent 给 renderer。目的是把 IPC 链路 + 事件流 + runId 状态表
- * + scene_approval interrupt + project 落盘端到端跑通,renderer 能看到完整
- * 进度,验证 plan §5 / long-task-event-stream.md 的设计。
+ * 两种实现:
+ *   - createDemoVideoAgentController:用 setTimeout 模拟 10 节点流水线进度
+ *     (commit 5 引入),无需 LangGraph + 无需 ffmpeg + LLM,适合本地 smoke test
+ *   - createLangGraphVideoAgentController:接 LangGraph StateGraph 跑真实
+ *     scan_assets + analyze_assets 两个节点,真解析视频元数据 + 帧描述
+ *     (commit 6 聚焦版,其它 8 节点留 commit 6.5)
  *
- * 真 LangGraph 接入在 commit 6,把 controller.start 里的 setTimeout
- * 替换成 graph.invoke + Command({ resume }) 即可。
+ * 两种实现共用 13 种 AgentRunEvent + per-invoke emit 闭包,渲染层不感知。
  */
 
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import {
+    createFsVideoAgentTools,
+    type ModelProvider
+} from '@miaoma-magicut/video-agent';
 import type { IpcMainInvokeEvent } from 'electron';
 
 import {
@@ -226,7 +231,10 @@ export const createDemoVideoAgentController = (options: {
     const start = async (
         input: VideoCreationInput,
         emit: DesktopEventEmitter
-    ): Promise<{ status: 'completed' | 'cancelled'; projectPath?: string }> => {
+    ): Promise<{
+        status: 'completed' | 'cancelled' | 'failed';
+        projectPath?: string;
+    }> => {
         const startedAt = Date.now();
         const workDir = join(outputBaseDir, `run-${input.runId}`);
         await mkdir(workDir, { recursive: true });
@@ -436,6 +444,227 @@ export const createDemoVideoAgentController = (options: {
 
 const sleep = (ms: number): Promise<void> =>
     new Promise((r) => setTimeout(r, ms));
+
+/**
+ * LangGraph 真接 controller —— commit 6 聚焦版。
+ *
+ * 跑真实的 scan_assets + analyze_assets 两个节点:
+ *   - scan_assets:扫 sourceAssetDirectory,按后缀白名单抽 .mp4/.mov/.mkv/.webm/.avi
+ *   - analyze_assets:对每个素材 probeMedia + extractKeyframes + describeFrames(M3 多模态)
+ *
+ * 输出 state.assets 里每个 AssetAnalysis 含真实 width/height/durationMs/fps/frames[]
+ * 帧描述是 M3 返回的中文画面描述。
+ *
+ * commit 6.5 起会再串 creative_brief → plan_scenes → scene_approval → ...
+ */
+
+export const createLangGraphVideoAgentController = (options: {
+    ffmpegPath?: string;
+    ffprobePath?: string;
+    outputBaseDir: string;
+    projectStore?: ProjectStore;
+    /**
+     * 注入点 —— 测试时塞 fake provider。
+     * 默认从 ARK_API_KEY + BASE_URL 构造 MinimaxM3ModelProvider。
+     */
+    modelProvider?: ModelProvider;
+}) => {
+    const runs = new Map<string, RunState>();
+    let sequence = 0;
+
+    const store = options.projectStore ?? defaultProjectStore;
+    const outputBaseDir = options.outputBaseDir;
+    const ffmpegPath = options.ffmpegPath ?? 'ffmpeg';
+    const ffprobePath = options.ffprobePath ?? 'ffprobe';
+
+    const makeEmitter =
+        (runId: string, base: DesktopEventEmitter) =>
+        (event: Record<string, unknown>): void => {
+            sequence += 1;
+            const evt = {
+                ...event,
+                runId,
+                seq: sequence,
+                timestamp: Date.now()
+            } as unknown as AgentRunEvent;
+            base(evt);
+        };
+
+    const start = async (
+        input: VideoCreationInput,
+        emit: DesktopEventEmitter
+    ): Promise<{
+        status: 'completed' | 'cancelled' | 'failed';
+        projectPath?: string;
+    }> => {
+        const startedAt = Date.now();
+        const workDir = join(outputBaseDir, `run-${input.runId}`);
+        await mkdir(workDir, { recursive: true });
+
+        const state: RunState = {
+            approvalReject: undefined,
+            approvalResolve: undefined,
+            cancelled: false,
+            input,
+            projectPath: undefined,
+            workDir
+        };
+        runs.set(input.runId, state);
+
+        const emitEvt = makeEmitter(input.runId, emit);
+
+        try {
+            emitEvt({ type: 'run.started', input });
+
+            // 动态 import video-agent 包(它依赖 LangGraph,主进程只在需要时加载)
+            const {
+                createMemoryCheckpointer,
+                createSequencedEventEmitter,
+                createVideoCreationGraph,
+                buildInitialState
+            } = await import('@miaoma-magicut/video-agent');
+
+            const tools = createFsVideoAgentTools();
+
+            // model provider 注入点
+            let modelProvider: ModelProvider | undefined =
+                options.modelProvider;
+            if (!modelProvider) {
+                const apiKey =
+                    process.env['ARK_API_KEY'] ?? process.env['API_KEY'] ?? '';
+                if (!apiKey) {
+                    throw new Error(
+                        'ARK_API_KEY / API_KEY env not set; cannot construct model provider'
+                    );
+                }
+                const { MinimaxM3ModelProvider } = await import(
+                    '@miaoma-magicut/video-agent'
+                );
+                modelProvider = new MinimaxM3ModelProvider({ apiKey });
+            }
+
+            const sequencedEmit = createSequencedEventEmitter({
+                runId: input.runId,
+                sink: (evt) => emit(evt as unknown as AgentRunEvent)
+            });
+
+            if (!modelProvider) {
+                throw new Error('modelProvider not initialized');
+            }
+
+            const checkpointer = createMemoryCheckpointer();
+            const graph = createVideoCreationGraph({
+                checkpointer,
+                runtime: {
+                    emit: sequencedEmit,
+                    ffmpegPath,
+                    ffprobePath,
+                    frameOutputDirectory: join(workDir, 'frames'),
+                    modelProvider,
+                    tools
+                }
+            });
+
+            const initial = buildInitialState(input);
+            const result = await graph.invoke(initial, {
+                configurable: { thread_id: input.runId }
+            });
+
+            // 落盘 — commit 6 阶段把第一个 asset 的核心元数据写入 project.json,
+            // commit 6.5 起由 assemble_timeline + save_project 节点接管
+            const assets = (
+                result as unknown as {
+                    assets: { assetId: string; filePath: string }[];
+                }
+            ).assets;
+            const firstAsset = assets[0];
+            const projectId = buildProjectId(input.runId);
+            const projectJson = {
+                assets: assets.map((a) => ({
+                    assetId: a.assetId,
+                    filePath: a.filePath
+                })),
+                brief: input.brief,
+                metadata: {
+                    createdAt: Date.now(),
+                    projectId,
+                    runId: input.runId,
+                    title: input.brief,
+                    updatedAt: Date.now()
+                },
+                renderConfig: { format: 'mp4', quality: 'preview' },
+                sourceAsset: firstAsset?.filePath
+            };
+            const projectPath = await store({
+                outputDir: outputBaseDir,
+                projectId,
+                projectJson
+            });
+            state.projectPath = projectPath;
+
+            emitEvt({
+                durationMs: Date.now() - startedAt,
+                projectPath,
+                type: 'run.completed'
+            });
+            return { projectPath, status: 'completed' };
+        } catch (error) {
+            if (state.cancelled) {
+                emitEvt({ type: 'run.cancelled' });
+                return { status: 'cancelled' };
+            }
+            emitEvt({
+                error: (error as Error).message,
+                type: 'run.failed'
+            });
+            return { status: 'failed' };
+        } finally {
+            await rm(workDir, { recursive: true, force: true }).catch(() => {});
+            runs.delete(input.runId);
+        }
+    };
+
+    const approve = (_runId: string, _approved: boolean): boolean => false;
+    const cancel = (runId: string): boolean => {
+        const state = runs.get(runId);
+        if (!state) return false;
+        state.cancelled = true;
+        return true;
+    };
+    const regenerateScene = async (
+        _runId: string,
+        _sceneId: string,
+        _feedback: string | undefined,
+        _emit: DesktopEventEmitter
+    ): Promise<{ status: 'completed' }> => {
+        throw new Error('regenerateScene not implemented in langgraph mode');
+    };
+    const regenerateVoices = async (
+        _runId: string,
+        _emit: DesktopEventEmitter
+    ): Promise<{ status: 'completed' }> => {
+        throw new Error('regenerateVoices not implemented in langgraph mode');
+    };
+    const requestFullState = (
+        runId: string
+    ): {
+        runId: string;
+        status: 'running' | 'cancelled' | 'completed' | 'not_found';
+    } => {
+        const state = runs.get(runId);
+        if (!state) return { runId, status: 'not_found' };
+        return { runId, status: state.cancelled ? 'cancelled' : 'running' };
+    };
+
+    return {
+        approve,
+        cancel,
+        regenerateScene,
+        regenerateVoices,
+        requestFullState,
+        start
+    };
+};
 
 /**
  * controller 类型 —— main.ts 用这个类型 wire handler。
