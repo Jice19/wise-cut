@@ -26,6 +26,8 @@ export default defineConfig({
             'renderer/**/*.{test,spec}.{ts,tsx}',
             'client/**/*.test.ts',
             'tests/**/*.{test,spec}.ts'
-        ]
+        ],
+        // renderer 端的 hook/dialog 测试用 happy-dom(轻量替代 jsdom)
+        environmentMatchGlobs: [['renderer/**/*.{test,spec}.tsx', 'happy-dom']]
     }
 });
