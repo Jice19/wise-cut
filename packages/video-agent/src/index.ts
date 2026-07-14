@@ -43,9 +43,25 @@ export {
 export type {
     DescribeFramesInput,
     FrameImage,
+    GenerateTextInput,
+    GenerateTextResult,
     ModelProvider
 } from './providers/model-provider';
 export type { VideoAgentTools } from './tools/video-agent-tools';
+
+// Phase 3 commit 6.5 —— prompts 子模块
+export {
+    ASSET_MATCHER_SYSTEM_PROMPT,
+    ASSET_MATCHER_USER_PROMPT_TEMPLATE
+} from './prompts/asset-matcher';
+export {
+    CREATIVE_BRIEF_SYSTEM_PROMPT,
+    CREATIVE_BRIEF_USER_PROMPT_TEMPLATE
+} from './prompts/creative-brief';
+export {
+    SCENE_PLANNER_SYSTEM_PROMPT,
+    SCENE_PLANNER_USER_PROMPT_TEMPLATE
+} from './prompts/scene-planner';
 
 // Phase 3 commit 6 —— events 子模块
 export {
@@ -61,18 +77,37 @@ export {
     type SequencedEventEmitter
 } from './events/event-emitter';
 
-// Phase 3 commit 6 —— graph 子模块(聚焦阶段)
+// Phase 3 commit 6.5 —— graph 子模块(完整 10 节点)
 export {
     createMemoryCheckpointer,
     type VideoCreationCheckpointer
 } from './graph/checkpoint';
 export {
+    Command,
     type CompiledVideoCreationGraph,
     createVideoCreationGraph,
     type VideoCreationStateType
 } from './graph/graph';
-export { type NodeRuntime } from './graph/node-runtime';
-export { analyzeAssetsNode, scanAssetsNode } from './graph/nodes';
+export type {
+    AssetMatcherPayload,
+    CreativeBriefPayload,
+    SceneApprovalRequest,
+    SceneApprovalResume,
+    ScenePlannerPayload
+} from './graph/node-payloads';
+export type { NodeRuntime } from './graph/node-runtime';
+export {
+    analyzeAssetsNode,
+    assembleTimelineNode,
+    creativeBriefNode,
+    matchAssetsNode,
+    planScenesNode,
+    saveProjectNode,
+    scanAssetsNode,
+    sceneApprovalNode,
+    synthesizeVoiceNode,
+    validateProjectNode
+} from './graph/nodes';
 export {
     buildInitialState,
     type RunStatus,

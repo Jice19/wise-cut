@@ -4,7 +4,8 @@
  *
  * 视频项目里核心能力:
  *   - describeFrames:多模态,base64 → 文字描述
- *   - 后续 commit 5 会扩 generateCreativeBrief / planScenes / rankAssetMatches 等纯文本能力
+ *   - generateText:纯文本生成,给 creative_brief / plan_scenes / match_assets
+ *     三个 LLM 节点用
  */
 
 import type { FrameDescription } from '@miaoma-magicut/video-project';
@@ -21,6 +22,23 @@ export type DescribeFramesInput = {
     temperature?: number;
 };
 
+export type GenerateTextInput = {
+    /** 任意 system prompt 字符串 */
+    system: string;
+    /** 任意 user prompt 字符串(已包含占位符替换) */
+    user: string;
+    maxTokens?: number;
+    temperature?: number;
+};
+
+export type GenerateTextResult = {
+    /** 模型原始输出文本(后续由 extractJsonFromLlmResponse 抠 JSON) */
+    text: string;
+    /** 总 token 数(可选) */
+    totalTokens?: number;
+};
+
 export interface ModelProvider {
     describeFrames(input: DescribeFramesInput): Promise<FrameDescription[]>;
+    generateText(input: GenerateTextInput): Promise<GenerateTextResult>;
 }

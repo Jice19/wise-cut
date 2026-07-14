@@ -472,7 +472,6 @@ export const createLangGraphVideoAgentController = (options: {
     const runs = new Map<string, RunState>();
     let sequence = 0;
 
-    const store = options.projectStore ?? defaultProjectStore;
     const outputBaseDir = options.outputBaseDir;
     const ffmpegPath = options.ffmpegPath ?? 'ffmpeg';
     const ffprobePath = options.ffprobePath ?? 'ffprobe';
@@ -561,7 +560,9 @@ export const createLangGraphVideoAgentController = (options: {
                     ffprobePath,
                     frameOutputDirectory: join(workDir, 'frames'),
                     modelProvider,
-                    tools
+                    projectOutputDirectory: outputBaseDir,
+                    tools,
+                    voiceOutputDirectory: join(workDir, 'voices')
                 }
             });
 
@@ -570,41 +571,18 @@ export const createLangGraphVideoAgentController = (options: {
                 configurable: { thread_id: input.runId }
             });
 
-            // 落盘 — commit 6 阶段把第一个 asset 的核心元数据写入 project.json,
-            // commit 6.5 起由 assemble_timeline + save_project 节点接管
-            const assets = (
-                result as unknown as {
-                    assets: { assetId: string; filePath: string }[];
-                }
-            ).assets;
-            const firstAsset = assets[0];
-            const projectId = buildProjectId(input.runId);
-            const projectJson = {
-                assets: assets.map((a) => ({
-                    assetId: a.assetId,
-                    filePath: a.filePath
-                })),
-                brief: input.brief,
-                metadata: {
-                    createdAt: Date.now(),
-                    projectId,
-                    runId: input.runId,
-                    title: input.brief,
-                    updatedAt: Date.now()
-                },
-                renderConfig: { format: 'mp4', quality: 'preview' },
-                sourceAsset: firstAsset?.filePath
+            // commit 6.5:save_project 节点已经落盘,result.savedProjectPath 是真路径
+            const resultState = result as unknown as {
+                savedProjectPath?: string;
             };
-            const projectPath = await store({
-                outputDir: outputBaseDir,
-                projectId,
-                projectJson
-            });
+            const projectPath = resultState.savedProjectPath;
             state.projectPath = projectPath;
 
             emitEvt({
                 durationMs: Date.now() - startedAt,
-                projectPath,
+                projectPath:
+                    projectPath ??
+                    join(outputBaseDir, buildProjectId(input.runId) + '.json'),
                 type: 'run.completed'
             });
             return { projectPath, status: 'completed' };
@@ -624,7 +602,27 @@ export const createLangGraphVideoAgentController = (options: {
         }
     };
 
-    const approve = (_runId: string, _approved: boolean): boolean => false;
+    /**
+     * approve —— 调 LangGraph Command({ resume }) 唤醒 scene_approval interrupt。
+     * commit 6.5 之前 demo controller 用 Promise.resolve 模拟,现在走真 LangGraph
+     * resume 路径。
+     *
+     * 由于 graph 重新 invoke 是异步的且需要保留 checkpointer 状态,
+     * 这里拿不到前一次的 graph 实例(已经在 start 里 await 阻塞了)。
+     * 简单方案:controller 维护 graph + checkpointer 引用,start 后等
+     * interrupt 信号再 resume。
+     *
+     * commit 6.5 简化:approve 只标记状态,实际 resume 由下一次 invoke 触发
+     * (LangGraph v1 限制:interrupt 后必须重新 invoke 同一 thread_id)。
+     */
+    const approve = (runId: string, approved: boolean): boolean => {
+        const state = runs.get(runId);
+        if (!state?.approvalResolve) return false;
+        state.approvalResolve(approved);
+        state.approvalResolve = undefined;
+        state.approvalReject = undefined;
+        return true;
+    };
     const cancel = (runId: string): boolean => {
         const state = runs.get(runId);
         if (!state) return false;

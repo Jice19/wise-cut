@@ -1,9 +1,9 @@
 /**
  * Node runtime —— 每个 LangGraph node 收到的运行时上下文。
  *
- * commit 6 阶段只为节点提供 ffmpeg / ffprobe / frame 输出目录 / LLM provider /
- * tools。emit 由 createSequencedEventEmitter 提供的 emitter,自动补 runId /
- * seq / timestamp。
+ * commit 6 阶段:ffmpeg / ffprobe / frame 输出目录 / LLM provider / tools
+ * commit 6.5 阶段扩:voiceOutputDirectory / projectOutputDirectory(给
+ * synthesize_voice + save_project 节点用)
  */
 
 import type { SequencedEventEmitter } from '../events/event-emitter.ts';
@@ -16,5 +16,7 @@ export type NodeRuntime = {
     ffprobePath: string;
     frameOutputDirectory: string;
     modelProvider: ModelProvider;
+    projectOutputDirectory: string;
     tools: VideoAgentTools;
+    voiceOutputDirectory: string;
 };

@@ -193,10 +193,36 @@ export const analyzeAssets = async (
 /**
  * 默认的 VideoAgentTools 实现 —— 仅依赖 Node fs,跑在主进程或 vitest 都行。
  * 主进程端可以包一层,加 path 白名单 / 错误聚合,这里给最简版。
+ *
+ * writeMp3 / writeProject 在 commit 6.5 阶段 stub 化(只写占位文件),
+ * 真正接 TTS provider / video-project-store 留 commit 9+ 整合。
  */
 export const createFsVideoAgentTools = (): VideoAgentTools => ({
     async readImageAsBase64DataUrl({ mimeType = 'image/jpeg', path }) {
         const bytes = await readFile(path);
         return `data:${mimeType};base64,${bytes.toString('base64')}`;
+    },
+    async writeMp3({ audioFilePath, narration, voiceId }) {
+        // commit 6.5 stub:写一个 JSON 占位文件,真 TTS 留 commit 9 接 volcengine
+        const { writeFile, mkdir } = await import('node:fs/promises');
+        const { dirname } = await import('node:path');
+        await mkdir(dirname(audioFilePath), { recursive: true });
+        await writeFile(
+            audioFilePath,
+            JSON.stringify({ narration, voiceId, stub: true }, null, 2),
+            'utf-8'
+        );
+    },
+    async writeProject({ outputDir, projectId, projectJson }) {
+        const { mkdir, writeFile } = await import('node:fs/promises');
+        const { join } = await import('node:path');
+        await mkdir(outputDir, { recursive: true });
+        const filePath = join(outputDir, `${projectId}.json`);
+        await writeFile(
+            filePath,
+            JSON.stringify(projectJson, null, 2),
+            'utf-8'
+        );
+        return filePath;
     }
 });

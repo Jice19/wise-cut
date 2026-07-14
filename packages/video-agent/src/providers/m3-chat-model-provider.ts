@@ -31,6 +31,8 @@ import { extractJsonFromLlmResponse } from './llm-json.ts';
 import type {
     DescribeFramesInput,
     FrameImage,
+    GenerateTextInput,
+    GenerateTextResult,
     ModelProvider
 } from './model-provider.ts';
 
@@ -162,5 +164,29 @@ export class MinimaxM3ModelProvider implements ModelProvider {
         return parsed.data.frames.map((frame) =>
             FrameDescriptionSchema.parse(frame)
         );
+    }
+
+    /**
+     * 纯文本生成 —— creative_brief / plan_scenes / match_assets 节点用。
+     * 返回原始文本,调用方用 extractJsonFromLlmResponse 抠 JSON。
+     */
+    async generateText({
+        system,
+        user,
+        maxTokens,
+        temperature
+    }: GenerateTextInput): Promise<GenerateTextResult> {
+        const messages: ChatMessage[] = [
+            { content: system, role: 'system' },
+            { content: user, role: 'user' }
+        ];
+
+        const text = await this.chat.chat({
+            maxTokens: maxTokens ?? this.maxTokens,
+            messages,
+            temperature: temperature ?? this.temperature
+        });
+
+        return { text };
     }
 }

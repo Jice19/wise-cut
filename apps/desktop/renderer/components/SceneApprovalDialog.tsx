@@ -12,7 +12,7 @@
 
 import { useEffect, useRef } from 'react';
 
-import type { SceneApprovalRequest } from '../../../shared/ipc';
+import type { SceneApprovalRequest } from '../../shared/ipc';
 
 export type SceneApprovalDialogProps = {
     onApprove: (approved: boolean) => void;
