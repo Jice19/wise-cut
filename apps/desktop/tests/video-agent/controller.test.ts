@@ -304,10 +304,19 @@ describe('createDemoVideoAgentController', () => {
                 const done = events.find((e) => e.type === 'run.completed');
                 const projectPath = done!.projectPath as string;
 
-                // 验证文件真的写盘 + JSON 合法
+                // 验证文件真的写盘 + JSON 合法,完整 VideoProject schema
                 const content = await readFile(projectPath, 'utf-8');
-                const json = JSON.parse(content);
-                expect(json.renderConfig).toEqual({
+                const { VideoProjectSchema } = await import(
+                    '@miaoma-magicut/video-project'
+                );
+                const project = VideoProjectSchema.parse(JSON.parse(content));
+                expect(project.schemaVersion).toBe('1.0.0');
+                expect(project.tracks.length).toBeGreaterThan(0);
+                expect(project.tracks[0]!.clips.length).toBeGreaterThan(0);
+                expect(project.canvas.width).toBe(1920);
+                expect(project.canvas.height).toBe(1080);
+                expect(project.assets.videos.length).toBeGreaterThan(0);
+                expect(project.renderConfig).toEqual({
                     format: 'mp4',
                     quality: 'preview'
                 });

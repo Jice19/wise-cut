@@ -282,21 +282,88 @@ export const createDemoVideoAgentController = (options: {
                 await runMockNode(state, i, emitEvt);
             }
 
-            // 落盘(commit 7 起改 video-project-store)
+            // 落盘 commit 7 完整 VideoProject —— demo 模式用 mock scenes
+            // 直接构造最小合法 VideoProject(通过 VideoProjectSchema.parse)
+            const { VideoProjectSchema } = await import(
+                '@miaoma-magicut/video-project'
+            );
+
             const projectId = buildProjectId(input.runId);
-            const projectJson = {
+            const mockScenes = buildMockScenes(input.runId);
+            const totalDurationMs = mockScenes.reduce(
+                (acc, s) => Math.max(acc, s.endMs),
+                0
+            );
+            const now = new Date().toISOString();
+            const project = VideoProjectSchema.parse({
+                agentConversation: [],
+                assets: {
+                    music: [],
+                    videos: [
+                        {
+                            assetId: `${input.runId}-asset-1`,
+                            durationMs: totalDurationMs,
+                            filePath: `${input.sourceAssetDirectory}/sample.mp4`,
+                            kind: 'video'
+                        }
+                    ],
+                    voices: mockScenes.map((s, i) => ({
+                        assetId: s.sceneId,
+                        durationMs: s.endMs - s.startMs,
+                        filePath: `${input.runId}-voice-${i + 1}.mp3`,
+                        kind: 'voice'
+                    }))
+                },
+                canvas: {
+                    durationMs: totalDurationMs,
+                    fps: 30,
+                    height: 1080,
+                    safeArea: {
+                        bottomPx: 0,
+                        leftPx: 0,
+                        rightPx: 0,
+                        topPx: 0
+                    },
+                    width: 1920
+                },
                 metadata: {
-                    createdAt: Date.now(),
+                    createdAt: now,
                     projectId,
                     title: input.brief,
-                    updatedAt: Date.now()
+                    updatedAt: now
                 },
-                renderConfig: { format: 'mp4', quality: 'preview' }
-            };
+                renderConfig: { format: 'mp4', quality: 'preview' },
+                schemaVersion: '1.0.0',
+                tracks: [
+                    {
+                        clips: mockScenes.map((s) => ({
+                            assetId: `${input.runId}-asset-1`,
+                            endMs: s.endMs,
+                            kind: 'video',
+                            playbackRate: 1,
+                            startMs: s.startMs
+                        })),
+                        kind: 'video',
+                        trackId: 'video-track'
+                    },
+                    {
+                        clips: mockScenes.map((s) => ({
+                            assetId: s.sceneId,
+                            endMs: s.endMs,
+                            gainDb: 0,
+                            kind: 'voice',
+                            startMs: s.startMs
+                        })),
+                        kind: 'voice',
+                        trackId: 'voice-track'
+                    }
+                ]
+            });
+
             const projectPath = await store({
                 outputDir: outputBaseDir,
                 projectId,
-                projectJson
+                projectJson: project
             });
             state.projectPath = projectPath;
 
