@@ -57,7 +57,10 @@ export const VideoCreationStateAnnotation = Annotation.Root({
     project: Annotation<VideoProject | undefined>(),
     savedProjectPath: Annotation<string | undefined>(),
     errors: Annotation<string[]>(),
-    status: Annotation<RunStatus>()
+    status: Annotation<RunStatus>(),
+    // commit 12:scene_approval 驳回/反馈修改时存用户 feedback,
+    // conditional edge 看到 feedback 非空就跳回 plan_scenes 重跑。
+    feedback: Annotation<string | undefined>()
 });
 
 export type VideoCreationGraphState = typeof VideoCreationStateAnnotation.State;
@@ -71,6 +74,7 @@ export const buildInitialState = (
     assets: [],
     brief: undefined,
     errors: [],
+    feedback: undefined,
     input,
     matches: [],
     project: undefined,

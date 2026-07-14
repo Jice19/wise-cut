@@ -358,7 +358,9 @@ export const createVideoCreationNodes = ({
             );
 
             if (!resume.approved) {
-                throw new Error('Scene plan rejected by user');
+                // commit 12:驳回时把 feedback 存到 state,conditional edge 会
+                // 看到 feedback 非空 → 跳回 plan_scenes 重跑
+                return { feedback: resume.feedback ?? 'rejected' };
             }
             return {};
         }),

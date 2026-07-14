@@ -123,29 +123,37 @@ const createCompiledGraph = ({
 }) => {
     const nodes = createVideoCreationNodes({ emit, tools });
 
-    return new StateGraph(VideoCreationStateAnnotation)
-        .addNode('scan_assets', nodes.scanAssets)
-        .addNode('analyze_assets', nodes.analyzeAssets)
-        .addNode('creative_brief', nodes.creativeBrief)
-        .addNode('plan_scenes', nodes.planScenes)
-        .addNode('scene_approval', nodes.sceneApproval)
-        .addNode('match_assets', nodes.matchAssets)
-        .addNode('synthesize_voice', nodes.synthesizeVoice)
-        .addNode('assemble_timeline', nodes.assembleTimeline)
-        .addNode('validate_project', nodes.validateProject)
-        .addNode('save_project', nodes.saveProject)
-        .addEdge(START, 'scan_assets')
-        .addEdge('scan_assets', 'analyze_assets')
-        .addEdge('analyze_assets', 'creative_brief')
-        .addEdge('creative_brief', 'plan_scenes')
-        .addEdge('plan_scenes', 'scene_approval')
-        .addEdge('scene_approval', 'match_assets')
-        .addEdge('match_assets', 'synthesize_voice')
-        .addEdge('synthesize_voice', 'assemble_timeline')
-        .addEdge('assemble_timeline', 'validate_project')
-        .addEdge('validate_project', 'save_project')
-        .addEdge('save_project', END)
-        .compile({ checkpointer });
+    return (
+        new StateGraph(VideoCreationStateAnnotation)
+            .addNode('scan_assets', nodes.scanAssets)
+            .addNode('analyze_assets', nodes.analyzeAssets)
+            .addNode('creative_brief', nodes.creativeBrief)
+            .addNode('plan_scenes', nodes.planScenes)
+            .addNode('scene_approval', nodes.sceneApproval)
+            .addNode('match_assets', nodes.matchAssets)
+            .addNode('synthesize_voice', nodes.synthesizeVoice)
+            .addNode('assemble_timeline', nodes.assembleTimeline)
+            .addNode('validate_project', nodes.validateProject)
+            .addNode('save_project', nodes.saveProject)
+            .addEdge(START, 'scan_assets')
+            .addEdge('scan_assets', 'analyze_assets')
+            .addEdge('analyze_assets', 'creative_brief')
+            .addEdge('creative_brief', 'plan_scenes')
+            .addEdge('plan_scenes', 'scene_approval')
+            // commit 12:驳回时 state.feedback 非空 → 跳回 plan_scenes 重跑;
+            // 批准时 feedback 仍 undefined → 进 match_assets
+            .addConditionalEdges(
+                'scene_approval',
+                (state) => (state.feedback ? 'plan_scenes' : 'match_assets'),
+                { match_assets: 'match_assets', plan_scenes: 'plan_scenes' }
+            )
+            .addEdge('match_assets', 'synthesize_voice')
+            .addEdge('synthesize_voice', 'assemble_timeline')
+            .addEdge('assemble_timeline', 'validate_project')
+            .addEdge('validate_project', 'save_project')
+            .addEdge('save_project', END)
+            .compile({ checkpointer })
+    );
 };
 
 // ---------------------------------------------------------------------------

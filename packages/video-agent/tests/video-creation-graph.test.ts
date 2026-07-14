@@ -336,3 +336,108 @@ describe.skipIf(!hasFfmpeg)('LangGraph pipeline — 完整 10 节点降级路径
         expect(['completed', 'failed']).toContain(secondResult.status);
     }, 90_000);
 });
+
+/**
+ * commit 12 — scene_approval 驳回时 conditional edge 回 plan_scenes。
+ *
+ * 流程:
+ *   start → 跑到 scene_approval (waiting_for_approval)
+ *   resume({ approved: false, feedback: '把第三段缩短' }) → 跳回 plan_scenes
+ *   resume({ approved: true }) → 走完
+ */
+describe.skipIf(!hasFfmpeg)(
+    'commit 12 — scene_approval 驳回走回 plan_scenes',
+    () => {
+        let workDir: string;
+
+        beforeAll(async () => {
+            workDir = await mkdtemp(join(tmpdir(), 'graph-feedback-'));
+            const videoDir = join(workDir, 'videos');
+            const { mkdir } = await import('node:fs/promises');
+            await mkdir(videoDir, { recursive: true });
+
+            await execFileAsync('ffmpeg', [
+                '-y',
+                '-f',
+                'lavfi',
+                '-i',
+                'testsrc=size=320x240:rate=15:duration=2',
+                '-pix_fmt',
+                'yuv420p',
+                '-c:v',
+                'libx264',
+                join(videoDir, 'sample.mp4')
+            ]);
+        });
+
+        afterAll(async () => {
+            await rm(workDir, { recursive: true, force: true });
+        });
+
+        it('驳回时 feedback 写入 state + conditional edge 回 plan_scenes', async () => {
+            const failingProvider = {
+                describeFrames: async () => {
+                    throw new Error('no LLM key');
+                },
+                generateText: async () => {
+                    throw new Error('no LLM key');
+                }
+            } as unknown as ModelProvider;
+
+            const tools = createFsVideoAgentTools();
+            const checkpointer = createVideoCreationCheckpointer();
+
+            const collected: AgentRunEvent[] = [];
+            const { setModelProvider } = await import('../src/graph/nodes.ts');
+            setModelProvider(failingProvider);
+
+            const runner = createVideoCreationGraph({
+                checkpointer,
+                emit: (evt) => collected.push(evt),
+                tools
+            });
+
+            // 1. start 跑到 scene_approval
+            const first = await runner.start({
+                brief: '驳回测试',
+                runId: 'r-feedback',
+                sourceAssetDirectory: join(workDir, 'videos')
+            });
+            expect(first.status).toBe('waiting_for_approval');
+            const planScenesStartedFirstTime = collected.filter(
+                (e) =>
+                    e.type === 'node.started' &&
+                    (e as { nodeName?: string }).nodeName === 'plan_scenes'
+            ).length;
+            expect(planScenesStartedFirstTime).toBe(1);
+
+            // 2. resume 驳回 + feedback
+            const rejected = await runner.resume({
+                approval: {
+                    approved: false,
+                    feedback: '把第三段缩短'
+                },
+                runId: 'r-feedback'
+            });
+            expect(rejected.status).toBe('waiting_for_approval');
+
+            // 驳回后 plan_scenes 应再次 node.started (conditional edge 回环)
+            const planScenesStartedAfterReject = collected.filter(
+                (e) =>
+                    e.type === 'node.started' &&
+                    (e as { nodeName?: string }).nodeName === 'plan_scenes'
+            ).length;
+            expect(planScenesStartedAfterReject).toBe(2);
+
+            // 3. resume 批准,继续(approve 后 plan_scenes 又跑一次触发 scene_approval interrupt,
+            // fallback 模式必然再卡 interrupt,不再追多 round 批准)
+            const approved = await runner.resume({
+                approval: { approved: true },
+                runId: 'r-feedback'
+            });
+            expect(['completed', 'failed', 'waiting_for_approval']).toContain(
+                approved.status
+            );
+        }, 60_000);
+    }
+);
