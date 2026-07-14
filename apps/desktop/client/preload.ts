@@ -53,6 +53,11 @@ const api: MiaomaAPI = {
     requestVideoAgentFullState: (input: { runId: string }) =>
         ipcRenderer.invoke(IPC.VIDEO_AGENT_REQUEST_FULL_STATE, input),
 
+    // video-project 读写 —— commit 9.2 让 editor 消费落盘的 VideoProject
+    readVideoProject: (input: { projectId: string }) =>
+        ipcRenderer.invoke(IPC.VIDEO_PROJECT_READ, input),
+    listVideoProjects: () => ipcRenderer.invoke(IPC.VIDEO_PROJECT_LIST),
+
     // export —— commit 6/9 接 handler,preload 先 wire 占位
     startExport: (input: {
         projectId: string;

@@ -10,7 +10,8 @@
  * 保留左侧"智能体运行计划"标题 + step 列表,但数据源换成 hook.nodes。
  */
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import { AppShell } from '@/components/app-shell';
 import { SceneApprovalDialog } from '@/components/SceneApprovalDialog';
@@ -56,6 +57,25 @@ export const AgentRunScreen = (): JSX.Element => {
         runStatus,
         start
     } = useVideoAgent();
+    const navigate = useNavigate();
+
+    // run.completed 后自动跳到 editor 页
+    useEffect(() => {
+        if (runStatus === 'completed' && projectPath) {
+            const match = /proj-([^/]+)\.json$/.exec(projectPath);
+            const projectId = match ? `proj-${match[1]}` : null;
+            if (projectId) {
+                const timer = setTimeout(
+                    () => navigate(`/editor/${projectId}`),
+                    1500
+                );
+                return () => {
+                    clearTimeout(timer);
+                };
+            }
+        }
+        return undefined;
+    }, [runStatus, projectPath, navigate]);
 
     const [logLines, setLogLines] = useState<
         { ts: number; type: string; text: string }[]

@@ -20,6 +20,8 @@ export const IPC = {
     VIDEO_AGENT_CANCEL: 'video-agent:cancel',
     VIDEO_AGENT_REGENERATE_SCENE: 'video-agent:regenerate-scene',
     VIDEO_AGENT_REGENERATE_VOICES: 'video-agent:regenerate-voices',
+    VIDEO_PROJECT_READ: 'video-project:read',
+    VIDEO_PROJECT_LIST: 'video-project:list',
 
     // video-agent 主 → 渲染 推送(commit 0a 合并为单 channel + 13 事件 union)
     VIDEO_AGENT_EVENT: 'video-agent:event',
@@ -153,6 +155,8 @@ export interface MiaomaAPI {
     regenerateVideoAgentVoices: (input: { runId: string }) => Promise<void>;
     onVideoAgentEvent: (handler: (event: AgentRunEvent) => void) => () => void;
     requestVideoAgentFullState: (input: { runId: string }) => Promise<unknown>;
+    readVideoProject: (input: { projectId: string }) => Promise<unknown>;
+    listVideoProjects: () => Promise<unknown>;
 
     // export —— commit 6/9 落
     startExport: (input: {

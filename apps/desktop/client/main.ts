@@ -117,6 +117,70 @@ const registerIpcHandlers = (controller: VideoAgentController): void => {
         }
     );
 
+    // video-project:read —— 从 userData/video-projects/ 读 + schema 校验
+    ipcMain.handle(
+        IPC.VIDEO_PROJECT_READ,
+        async (_event, input: { projectId: string }) => {
+            const { readFile } = await import('node:fs/promises');
+            const { join } = await import('node:path');
+            const { VideoProjectSchema } = await import(
+                '@miaoma-magicut/video-project'
+            );
+            const path = join(
+                app.getPath('userData'),
+                'video-projects',
+                `${input.projectId}.json`
+            );
+            try {
+                const content = await readFile(path, 'utf-8');
+                return VideoProjectSchema.parse(JSON.parse(content));
+            } catch (error) {
+                throw new Error(
+                    `readProject ${input.projectId} failed: ${(error as Error).message}`
+                );
+            }
+        }
+    );
+
+    // video-project:list —— 扫 userData/video-projects/*.json
+    ipcMain.handle(IPC.VIDEO_PROJECT_LIST, async () => {
+        const { readdir, readFile } = await import('node:fs/promises');
+        const { join } = await import('node:path');
+        const dir = join(app.getPath('userData'), 'video-projects');
+        try {
+            const entries = await readdir(dir);
+            const projects = await Promise.all(
+                entries
+                    .filter((e) => e.endsWith('.json'))
+                    .map(async (file) => {
+                        try {
+                            const content = await readFile(
+                                join(dir, file),
+                                'utf-8'
+                            );
+                            const json = JSON.parse(content);
+                            return {
+                                projectId:
+                                    json.metadata?.projectId ??
+                                    file.replace('.json', ''),
+                                title: json.metadata?.title ?? 'untitled',
+                                createdAt: json.metadata?.createdAt,
+                                updatedAt: json.metadata?.updatedAt,
+                                durationMs: json.canvas?.durationMs
+                            };
+                        } catch {
+                            return null;
+                        }
+                    })
+            );
+            return projects
+                .filter((p): p is NonNullable<typeof p> => p !== null)
+                .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+        } catch {
+            return [];
+        }
+    });
+
     ipcMain.handle(IPC.WINDOW_MINIMIZE, (event) => {
         BrowserWindow.fromWebContents(event.sender)?.minimize();
     });

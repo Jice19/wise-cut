@@ -56,7 +56,7 @@ const EditorRoute = (): JSX.Element => {
     if (!projectId) {
         return <Navigate to="/editor/p1" replace />;
     }
-    return <EditorScreen projectId={projectId} />;
+    return <EditorScreen />;
 };
 
 export const routes: RouteObject[] = [
