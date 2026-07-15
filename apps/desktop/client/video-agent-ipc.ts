@@ -14,10 +14,6 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import {
-    createFsVideoAgentTools,
-    type ModelProvider
-} from '@miaoma-magicut/video-agent';
 import type { IpcMainInvokeEvent } from 'electron';
 
 import {
@@ -653,7 +649,7 @@ export const registerVideoAgentIpc = ({
  *
  * 当前 desktop 端用 demo 模式走通基本流程;langgraph 模式后续接入。
  */
-export const createLangGraphVideoAgentController = (options: {
+export const createLangGraphVideoAgentController = (_options: {
     outputBaseDir: string;
     projectStore?: never;
     modelProvider?: never;
@@ -666,11 +662,11 @@ export const createLangGraphVideoAgentController = (options: {
         runId: string,
         sceneId: string,
         feedback: string | undefined,
-        emit: never
+        emit: DesktopEventEmitter
     ) => Promise<{ status: 'completed' }>;
     regenerateVoices: (
         runId: string,
-        emit: never
+        emit: DesktopEventEmitter
     ) => Promise<{
         status: 'completed';
     }>;
@@ -679,8 +675,8 @@ export const createLangGraphVideoAgentController = (options: {
         status: 'running' | 'cancelled' | 'completed' | 'not_found';
     };
     start: (
-        input: never,
-        emit: never
+        input: VideoCreationInput,
+        emit: DesktopEventEmitter
     ) => Promise<{
         status: 'completed' | 'cancelled' | 'failed';
         projectPath?: string;

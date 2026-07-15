@@ -112,6 +112,8 @@ const getStateValues = async ({
 // 编译图(闭包,每 runner 实例一份)
 // ---------------------------------------------------------------------------
 
+import { AgentRunEventSink } from '../events/event-emitter.ts';
+
 const createCompiledGraph = ({
     checkpointer,
     emit,
@@ -177,7 +179,10 @@ export const createVideoCreationGraph = ({
     const getEmitter = (runId: string) => {
         const existing = eventEmitters.get(runId);
         if (existing) return existing;
-        const created = createSequencedEventEmitter({ sink: emit, runId });
+        const created = createSequencedEventEmitter({
+            sink: emit as AgentRunEventSink,
+            runId
+        });
         eventEmitters.set(runId, created);
         return created;
     };

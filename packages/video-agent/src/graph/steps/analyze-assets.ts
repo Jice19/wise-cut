@@ -236,15 +236,29 @@ export const createFsVideoAgentTools = (): VideoAgentTools => ({
         return `data:${mimeType};base64,${bytes.toString('base64')}`;
     },
     async writeMp3({ audioFilePath, narration, voiceId }) {
-        // commit 6.5 stub:写一个 JSON 占位文件,真 TTS 留 commit 9 接 volcengine
+        // commit 6.5 stub → commit 13 升级:写一个最小合法 mp3 header(便于
+        // ffmpeg concat 跟视频拼)+ 估算字级时间戳(commit 14 接真 TTS 时
+        // 由真 API 响应替换)。
         const { writeFile, mkdir } = await import('node:fs/promises');
         const { dirname } = await import('node:path');
         await mkdir(dirname(audioFilePath), { recursive: true });
-        await writeFile(
-            audioFilePath,
-            JSON.stringify({ narration, voiceId, stub: true }, null, 2),
-            'utf-8'
+        // 写一个最小 mp3 头(几个 ID3 + MPEG frame),保证 ffmpeg concat 能
+        // 识别为音频文件而不是 JSON 占位
+        const silentMp3 = Buffer.from([
+            0x49, 0x44, 0x33, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff,
+            0xfb, 0x90, 0x00
+        ]);
+        await writeFile(audioFilePath, silentMp3);
+        // durationMs 由 scene 端给(scene.endMs - scene.startMs),但 stub 不知
+        // 道 scene 信息 → 用 1000ms 默认,scene_assemble 用 scene 时间覆盖
+        const { estimateWordTimestamps } = await import(
+            '../tools/video-agent-tools.ts'
         );
+        const wordTimestamps = estimateWordTimestamps(narration, 1000);
+        return {
+            audioFilePath,
+            wordTimestamps
+        };
     },
     async writeProject({ outputDir, projectId, projectJson }) {
         const { mkdir, writeFile } = await import('node:fs/promises');

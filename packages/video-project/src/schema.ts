@@ -132,11 +132,19 @@ export const AssetMatchResultSchema = z.object({
  * VoiceSynthesisResult —— synthesize_voice 节点产出。
  * 路径落在临时目录(commit 6 起由 voice-defaults 决定)。
  */
+export const WordTimestampSchema = z.object({
+    endMs: z.number().int().nonnegative(),
+    startMs: z.number().int().nonnegative(),
+    word: z.string().min(1)
+});
+
 export const VoiceSynthesisResultSchema = z.object({
     audioFilePath: z.string().min(1),
     durationMs: z.number().int().positive(),
     sceneId: z.string().min(1),
-    voiceId: z.string().min(1)
+    srtPath: z.string().min(1).optional(),
+    voiceId: z.string().min(1),
+    wordTimestamps: z.array(WordTimestampSchema).optional()
 });
 
 // ----- Clip -----
@@ -353,6 +361,7 @@ export type SubtitleLine = z.infer<typeof SubtitleLineSchema>;
 export type Scene = z.infer<typeof SceneSchema>;
 export type AssetMatchResult = z.infer<typeof AssetMatchResultSchema>;
 export type VoiceSynthesisResult = z.infer<typeof VoiceSynthesisResultSchema>;
+export type WordTimestamp = z.infer<typeof WordTimestampSchema>;
 
 export type VideoClip = z.infer<typeof VideoClipSchema>;
 export type VoiceClip = z.infer<typeof VoiceClipSchema>;

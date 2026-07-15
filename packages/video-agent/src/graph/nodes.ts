@@ -17,7 +17,7 @@
  * 自动转成 GraphInterrupt,runner 端 catch 后 emit run.failed。
  */
 
-import { readdir } from 'node:fs/promises';
+import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 
 import { interrupt } from '@langchain/langgraph';
@@ -40,7 +40,10 @@ import {
 } from '../prompts/scene-planner.ts';
 import { extractJsonFromLlmResponse } from '../providers/llm-json.ts';
 import type { ModelProvider } from '../providers/model-provider.ts';
-import type { VideoAgentTools } from '../tools/video-agent-tools.ts';
+import {
+    type VideoAgentTools,
+    wordTimestampsToSrt
+} from '../tools/video-agent-tools.ts';
 import type {
     AssetMatcherPayload,
     CreativeBriefPayload,
@@ -412,6 +415,7 @@ export const createVideoCreationNodes = ({
                 '.miaoma-voices',
                 runId
             );
+            await mkdir(voiceOutputDir, { recursive: true });
             const voices = [];
             for (let i = 0; i < state.scenes.length; i += 1) {
                 const scene = state.scenes[i]!;
@@ -419,17 +423,30 @@ export const createVideoCreationNodes = ({
                     voiceOutputDir,
                     `${runId}-${scene.sceneId}.mp3`
                 );
+                const durationMs = scene.endMs - scene.startMs;
                 try {
-                    await tools.writeMp3({
+                    // commit 13:writeMp3 返回字级时间戳(commit 14 接真 TTS 时
+                    // 来自 API 真实响应;当前 stub 用 estimateWordTimestamps 估算)
+                    const { wordTimestamps } = await tools.writeMp3({
                         audioFilePath,
                         narration: scene.narration,
                         voiceId
                     });
+
+                    // 用字级时间戳生成 SRT 字幕,落盘到 audioFilePath 同名 .srt
+                    const srtPath = audioFilePath.replace(/\.mp3$/, '.srt');
+                    const srt = wordTimestampsToSrt(wordTimestamps, {
+                        sceneStartMs: scene.startMs
+                    });
+                    await writeFile(srtPath, srt, 'utf-8');
+
                     voices.push({
                         audioFilePath,
-                        durationMs: scene.endMs - scene.startMs,
+                        durationMs,
                         sceneId: scene.sceneId,
-                        voiceId
+                        srtPath,
+                        voiceId,
+                        wordTimestamps
                     });
                 } catch (error) {
                     // eslint-disable-next-line no-console
