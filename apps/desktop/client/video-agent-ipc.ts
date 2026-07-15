@@ -158,6 +158,8 @@ export const createDemoVideoAgentController = (options: {
             const { mkdir, writeFile, copyFile } = await import(
                 'node:fs/promises'
             );
+            // commit 21:workspace 包内 schema.ts / nodes.ts 改动触发 vite
+            // rebuild main bundle,renderer/editor 拿真 scenes 顶层字段。
             const desktopTools = {
                 readImageAsBase64DataUrl: async () => {
                     throw new Error('demo: readImageAsBase64DataUrl not impl');

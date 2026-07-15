@@ -342,6 +342,12 @@ export const VideoProjectSchema = z
         canvas: CanvasConfigSchema,
         metadata: ProjectMetadataSchema,
         renderConfig: RenderConfigSchema,
+        // commit 21:plan_scenes 产出的 SceneSchema[] 顶层落到 VideoProject,
+        // 让 editor 渲染分镜卡能拿到 narration / visualBrief(原来只有
+        // tracks[].clips[] 的 startMs/endMs/assetId,描述丢失)。
+        // .default([]) 让老 *.json 文件 parse 不破 —— 降级到空数组,
+        // buildDerivedScenes 用 ?? '' 兜底。
+        scenes: z.array(SceneSchema).default([]),
         schemaVersion: z.literal(VIDEO_PROJECT_SCHEMA_VERSION),
         tracks: z.array(TimelineTrackSchema)
     })

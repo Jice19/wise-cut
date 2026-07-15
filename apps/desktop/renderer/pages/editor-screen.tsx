@@ -42,6 +42,8 @@ const TIMELINE_WIDTH_PX = 800;
 
 type DerivedScene = {
     endMs: number;
+    /** commit 21:plan_scenes 节点产出的画面描述(M3 真接时是中文一段)。 */
+    visualBrief: string;
     index: number;
     narration: string;
     startMs: number;
@@ -65,6 +67,11 @@ const extractAnalysisResult = (
 const buildDerivedScenes = (project: VideoProject): DerivedScene[] => {
     const videoTrack = project.tracks.find((t) => t.kind === 'video');
     const voiceTrack = project.tracks.find((t) => t.kind === 'voice');
+    // commit 21:从 VideoProjectSchema.scenes(plan_scenes 节点产出)取 narration /
+    // visualBrief / subtitleLines,落到 card 渲染。1:1 by construction —
+    // assembleTimeline 跟 plan_scenes 都按 state.scenes 顺序遍历,clip[idx]
+    // 对应 scenes[idx]。
+    const scenesMeta = project.scenes;
     return (videoTrack?.clips ?? []).map((clip, idx) => {
         const voiceClip = voiceTrack?.clips.find((c) => {
             // voice clip assetId 对应 sceneId(assembleTimelineNode 用 sceneId 作为 voice assetId)
@@ -72,12 +79,17 @@ const buildDerivedScenes = (project: VideoProject): DerivedScene[] => {
                 c.assetId === clip.assetId || c.assetId.endsWith(`-${idx + 1}`)
             );
         });
+        const sceneMeta = scenesMeta[idx];
         return {
             endMs: clip.endMs,
             index: idx,
-            narration: voiceClip ? '' : '', // commit 17 不从 voice 拿 narration,UI 改
+            // fallback '' 让老 project 文件(.json 无 scenes 字段走 default([])
+            // 后 scenesMeta[idx] undefined)仍走 commit 17 路径,不爆 React。
+            narration: sceneMeta?.narration ?? '',
             startMs: clip.startMs,
-            subtitleText: voiceClip ? '' : '',
+            subtitleText:
+                sceneMeta?.subtitleLines?.map((l) => l.text).join(' ') ?? '',
+            visualBrief: sceneMeta?.visualBrief ?? '',
             voiceClip
         };
     });
@@ -263,6 +275,16 @@ export const EditorScreen = (): JSX.Element => {
                                                 {formatTime(s.endMs)}
                                             </span>
                                         </div>
+                                        {/* commit 21:落地 plan_scenes 节点
+                                            产出的 narration(自然语言旁白),
+                                            30 字截断避免卡片视觉溢出。 */}
+                                        {s.narration ? (
+                                            <p className="line-clamp-2 text-[11px] text-text-tertiary">
+                                                {s.narration.length > 30
+                                                    ? `${s.narration.slice(0, 30)}…`
+                                                    : s.narration}
+                                            </p>
+                                        ) : null}
                                     </button>
                                 </li>
                             );
@@ -279,10 +301,19 @@ export const EditorScreen = (): JSX.Element => {
                                 <div className="text-3xl font-bold text-text-primary">
                                     分镜 {selected.index + 1}
                                 </div>
-                                <p className="max-w-md text-sm text-text-secondary">
-                                    {selected.subtitleText ||
-                                        '(无字幕,可在下方编辑)'}
+                                {/* commit 21:落地 plan_scenes 节点产出的
+                                    narration(主行)与 visualBrief(副行)。
+                                    fallback 行为:无 narration 显原 subtitleText
+                                    占位;无 visualBrief 不显示。 */}
+                                <p className="max-w-md text-sm font-semibold text-text-primary">
+                                    {selected.narration ||
+                                        '(无旁白,可在编辑器下方写字幕)'}
                                 </p>
+                                {selected.visualBrief ? (
+                                    <p className="line-clamp-3 max-w-md text-xs text-text-tertiary">
+                                        {selected.visualBrief}
+                                    </p>
+                                ) : null}
                                 <p className="text-xs text-text-tertiary">
                                     {formatTime(selected.startMs)} -{' '}
                                     {formatTime(selected.endMs)}

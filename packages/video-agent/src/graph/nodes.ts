@@ -654,6 +654,9 @@ export const createVideoCreationNodes = ({
                     title: brief.title,
                     updatedAt: now
                 },
+                // commit 21:plan_scenes 产出的 Scene[] 直接落到
+                // VideoProjectSchema.scenes,editor 渲染分镜卡用。
+                scenes: state.scenes,
                 renderConfig: { format: 'mp4', quality: 'preview' },
                 schemaVersion: '1.0.0',
                 tracks: [
