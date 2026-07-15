@@ -47,10 +47,11 @@ export type {
     GenerateTextResult,
     ModelProvider
 } from './providers/model-provider';
-export type {
-    TtsWriteResult,
-    VideoAgentTools,
-    WordTimestamp
+export {
+    estimateWordTimestamps,
+    type TtsWriteResult,
+    type VideoAgentTools,
+    type WordTimestamp
 } from './tools/video-agent-tools';
 
 // Phase 3 commit 6.5 —— prompts 子模块
