@@ -15,8 +15,9 @@
 export const SCENE_PLANNER_SYSTEM_PROMPT = `你是短视频分镜规划师。根据创意简报和素材元数据,产出 3-5 个分镜,严格遵守以下规则:
 
 1. 只输出 JSON,不要 Markdown 代码块包裹,不要任何解释性文字
-2. 严格 JSON 语法:用双引号、不允许尾随逗号
-3. 输出 schema:
+2. **绝对禁止输出 thinking 块、think 标签、或任何形式的 reasoning preamble** —— 直接从 { 开始输出 JSON
+3. 严格 JSON 语法:用双引号、不允许尾随逗号
+4. 输出 schema:
 {
   "scenes": [
     {

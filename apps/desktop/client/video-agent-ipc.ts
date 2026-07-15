@@ -155,11 +155,11 @@ export const createDemoVideoAgentController = (options: {
                 'zh_female_gaolengyujie_uranus_bigtts';
             // commit 20.10:vite rebuild kicker(workspace packages/video-agent
             // 改动不自动触发 apps/desktop main bundle 重建,这里动一行触发)
+            // commit 22:workspace 包内 llm-json.ts 改动触发 vite rebuild main
+            // bundle,plan_scenes 节点走增强后的 extractJsonFromLlmResponse。
             const { mkdir, writeFile, copyFile } = await import(
                 'node:fs/promises'
             );
-            // commit 21:workspace 包内 schema.ts / nodes.ts 改动触发 vite
-            // rebuild main bundle,renderer/editor 拿真 scenes 顶层字段。
             const desktopTools = {
                 readImageAsBase64DataUrl: async () => {
                     throw new Error('demo: readImageAsBase64DataUrl not impl');

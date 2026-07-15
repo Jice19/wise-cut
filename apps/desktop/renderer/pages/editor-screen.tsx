@@ -64,6 +64,25 @@ const extractAnalysisResult = (
     return null;
 };
 
+/**
+ * commit 22:返回当前选中分镜时段命中(完全被覆盖)的帧窗口 summary。
+ * 命中规则:windowStart >= scene.startMs && windowEnd <= scene.endMs。
+ */
+const windowSummariesForScene = (
+    scene: DerivedScene,
+    analysis: VideoAnalysisResult | null
+): {
+    summary: string;
+    windowEnd: number;
+    windowIndex: number;
+    windowStart: number;
+}[] => {
+    if (!analysis) return [];
+    return analysis.keyFrameAnalysis.filter(
+        (w) => w.windowStart >= scene.startMs && w.windowEnd <= scene.endMs
+    );
+};
+
 const buildDerivedScenes = (project: VideoProject): DerivedScene[] => {
     const videoTrack = project.tracks.find((t) => t.kind === 'video');
     const voiceTrack = project.tracks.find((t) => t.kind === 'voice');
@@ -314,6 +333,23 @@ export const EditorScreen = (): JSX.Element => {
                                         {selected.visualBrief}
                                     </p>
                                 ) : null}
+                                {/* commit 22:展示该分镜时段对应帧窗口的 summary
+                                    (commit 15 帧分组分析产物)。让用户在决策时
+                                    看到画面情绪/主体描述。命中时间窗:
+                                    window.windowStart >= scene.startMs &&
+                                    window.windowEnd <= scene.endMs。 */}
+                                {windowSummariesForScene(
+                                    selected,
+                                    analysisResult
+                                ).map((w) => (
+                                    <p
+                                        key={w.windowIndex}
+                                        className="line-clamp-2 max-w-md rounded bg-bg-sunken px-2 py-1 text-[10px] italic text-text-tertiary"
+                                    >
+                                        [{formatTime(w.windowStart)}–{' '}
+                                        {formatTime(w.windowEnd)}] {w.summary}
+                                    </p>
+                                ))}
                                 <p className="text-xs text-text-tertiary">
                                     {formatTime(selected.startMs)} -{' '}
                                     {formatTime(selected.endMs)}
