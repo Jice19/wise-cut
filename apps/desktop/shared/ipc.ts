@@ -104,6 +104,17 @@ export type SceneApprovalRequest = {
 export type SceneApprovalResume = { approved: boolean };
 
 /**
+ * 项目列表项 —— commit 9.3 workbench 列表用,只含轻量字段
+ */
+export type VideoProjectSummary = {
+    createdAt?: string;
+    durationMs?: number;
+    projectId: string;
+    title: string;
+    updatedAt?: string;
+};
+
+/**
  * 用户输入(commit 6 起 VideoCreationInput 完整版落 schema)
  */
 export type VideoCreationInput = {
@@ -156,7 +167,13 @@ export interface MiaomaAPI {
     onVideoAgentEvent: (handler: (event: AgentRunEvent) => void) => () => void;
     requestVideoAgentFullState: (input: { runId: string }) => Promise<unknown>;
     readVideoProject: (input: { projectId: string }) => Promise<unknown>;
-    listVideoProjects: () => Promise<unknown>;
+    listVideoProjects: () => Promise<VideoProjectSummary[]>;
+    createNewProject: (input: { title: string }) => Promise<{
+        projectId: string;
+    }>;
+    deleteProject: (input: { projectId: string }) => Promise<{
+        deleted: boolean;
+    }>;
 
     // export —— commit 6/9 落
     startExport: (input: {

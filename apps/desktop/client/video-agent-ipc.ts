@@ -525,228 +525,6 @@ const sleep = (ms: number): Promise<void> =>
  * commit 6.5 起会再串 creative_brief → plan_scenes → scene_approval → ...
  */
 
-export const createLangGraphVideoAgentController = (options: {
-    ffmpegPath?: string;
-    ffprobePath?: string;
-    outputBaseDir: string;
-    projectStore?: ProjectStore;
-    /**
-     * 注入点 —— 测试时塞 fake provider。
-     * 默认从 ARK_API_KEY + BASE_URL 构造 MinimaxM3ModelProvider。
-     */
-    modelProvider?: ModelProvider;
-}) => {
-    const runs = new Map<string, RunState>();
-    let sequence = 0;
-
-    const outputBaseDir = options.outputBaseDir;
-    const ffmpegPath = options.ffmpegPath ?? 'ffmpeg';
-    const ffprobePath = options.ffprobePath ?? 'ffprobe';
-
-    const makeEmitter =
-        (runId: string, base: DesktopEventEmitter) =>
-        (event: Record<string, unknown>): void => {
-            sequence += 1;
-            const evt = {
-                ...event,
-                runId,
-                seq: sequence,
-                timestamp: Date.now()
-            } as unknown as AgentRunEvent;
-            base(evt);
-        };
-
-    const start = async (
-        input: VideoCreationInput,
-        emit: DesktopEventEmitter
-    ): Promise<{
-        status: 'completed' | 'cancelled' | 'failed';
-        projectPath?: string;
-    }> => {
-        const startedAt = Date.now();
-        const workDir = join(outputBaseDir, `run-${input.runId}`);
-        await mkdir(workDir, { recursive: true });
-
-        const state: RunState = {
-            approvalReject: undefined,
-            approvalResolve: undefined,
-            cancelled: false,
-            input,
-            projectPath: undefined,
-            workDir
-        };
-        runs.set(input.runId, state);
-
-        const emitEvt = makeEmitter(input.runId, emit);
-
-        try {
-            emitEvt({ type: 'run.started', input });
-
-            // 动态 import video-agent 包(它依赖 LangGraph,主进程只在需要时加载)
-            const {
-                createMemoryCheckpointer,
-                createSequencedEventEmitter,
-                createVideoCreationGraph,
-                buildInitialState
-            } = await import('@miaoma-magicut/video-agent');
-
-            const tools = createFsVideoAgentTools();
-
-            // model provider 注入点
-            let modelProvider: ModelProvider | undefined =
-                options.modelProvider;
-            if (!modelProvider) {
-                const apiKey =
-                    process.env['ARK_API_KEY'] ?? process.env['API_KEY'] ?? '';
-                if (apiKey) {
-                    const { MinimaxM3ModelProvider } = await import(
-                        '@miaoma-magicut/video-agent'
-                    );
-                    modelProvider = new MinimaxM3ModelProvider({ apiKey });
-                } else {
-                    // 无 LLM key 时用 stub provider —— 三个 LLM 节点内置
-                    // fallback 路径(creative_brief / plan_scenes /
-                    // match_assets)会用 state.input.brief 直接生成基础产物,
-                    // pipeline 仍能跑完到 save_project 落盘完整 VideoProject。
-                    // eslint-disable-next-line no-console
-                    console.warn(
-                        '[video-agent] ARK_API_KEY not set, using no-LLM stub (fallback path)'
-                    );
-                    modelProvider = {
-                        describeFrames: async () => {
-                            throw new Error(
-                                'no LLM key — analyze_assets degraded'
-                            );
-                        },
-                        generateText: async () => {
-                            throw new Error('no LLM key — node fallback');
-                        }
-                    };
-                }
-            }
-
-            const sequencedEmit = createSequencedEventEmitter({
-                runId: input.runId,
-                sink: (evt) => emit(evt as unknown as AgentRunEvent)
-            });
-
-            if (!modelProvider) {
-                throw new Error('modelProvider not initialized');
-            }
-
-            const checkpointer = createMemoryCheckpointer();
-            const graph = createVideoCreationGraph({
-                checkpointer,
-                runtime: {
-                    emit: sequencedEmit,
-                    ffmpegPath,
-                    ffprobePath,
-                    frameOutputDirectory: join(workDir, 'frames'),
-                    modelProvider,
-                    projectOutputDirectory: outputBaseDir,
-                    tools,
-                    voiceOutputDirectory: join(workDir, 'voices')
-                }
-            });
-
-            const initial = buildInitialState(input);
-            const result = await graph.invoke(initial, {
-                configurable: { thread_id: input.runId }
-            });
-
-            // commit 6.5:save_project 节点已经落盘,result.savedProjectPath 是真路径
-            const resultState = result as unknown as {
-                savedProjectPath?: string;
-            };
-            const projectPath = resultState.savedProjectPath;
-            state.projectPath = projectPath;
-
-            emitEvt({
-                durationMs: Date.now() - startedAt,
-                projectPath:
-                    projectPath ??
-                    join(outputBaseDir, buildProjectId(input.runId) + '.json'),
-                type: 'run.completed'
-            });
-            return { projectPath, status: 'completed' };
-        } catch (error) {
-            if (state.cancelled) {
-                emitEvt({ type: 'run.cancelled' });
-                return { status: 'cancelled' };
-            }
-            emitEvt({
-                error: (error as Error).message,
-                type: 'run.failed'
-            });
-            return { status: 'failed' };
-        } finally {
-            await rm(workDir, { recursive: true, force: true }).catch(() => {});
-            runs.delete(input.runId);
-        }
-    };
-
-    /**
-     * approve —— 调 LangGraph Command({ resume }) 唤醒 scene_approval interrupt。
-     * commit 6.5 之前 demo controller 用 Promise.resolve 模拟,现在走真 LangGraph
-     * resume 路径。
-     *
-     * 由于 graph 重新 invoke 是异步的且需要保留 checkpointer 状态,
-     * 这里拿不到前一次的 graph 实例(已经在 start 里 await 阻塞了)。
-     * 简单方案:controller 维护 graph + checkpointer 引用,start 后等
-     * interrupt 信号再 resume。
-     *
-     * commit 6.5 简化:approve 只标记状态,实际 resume 由下一次 invoke 触发
-     * (LangGraph v1 限制:interrupt 后必须重新 invoke 同一 thread_id)。
-     */
-    const approve = (runId: string, approved: boolean): boolean => {
-        const state = runs.get(runId);
-        if (!state?.approvalResolve) return false;
-        state.approvalResolve(approved);
-        state.approvalResolve = undefined;
-        state.approvalReject = undefined;
-        return true;
-    };
-    const cancel = (runId: string): boolean => {
-        const state = runs.get(runId);
-        if (!state) return false;
-        state.cancelled = true;
-        return true;
-    };
-    const regenerateScene = async (
-        _runId: string,
-        _sceneId: string,
-        _feedback: string | undefined,
-        _emit: DesktopEventEmitter
-    ): Promise<{ status: 'completed' }> => {
-        throw new Error('regenerateScene not implemented in langgraph mode');
-    };
-    const regenerateVoices = async (
-        _runId: string,
-        _emit: DesktopEventEmitter
-    ): Promise<{ status: 'completed' }> => {
-        throw new Error('regenerateVoices not implemented in langgraph mode');
-    };
-    const requestFullState = (
-        runId: string
-    ): {
-        runId: string;
-        status: 'running' | 'cancelled' | 'completed' | 'not_found';
-    } => {
-        const state = runs.get(runId);
-        if (!state) return { runId, status: 'not_found' };
-        return { runId, status: state.cancelled ? 'cancelled' : 'running' };
-    };
-
-    return {
-        approve,
-        cancel,
-        regenerateScene,
-        regenerateVoices,
-        requestFullState,
-        start
-    };
-};
-
 /**
  * controller 类型 —— main.ts 用这个类型 wire handler。
  */
@@ -863,4 +641,69 @@ export const registerVideoAgentIpc = ({
         (_event, input: { runId: string }) =>
             controller.requestFullState(input.runId)
     );
+};
+
+/**
+ * LangGraph 视频创作 controller —— commit 11 stub。
+ *
+ * commit 10 graph 重构后,start/resume 走 VideoCreationGraphRunner 接口,
+ * 旧实现 (createMemoryCheckpointer / graph.invoke / graph.builder) 已
+ * 全部移除。langgraph 模式 controller 留空壳,start 抛 not implemented,
+ * commit 11+ 会基于新 runner 接口重写完整实现。
+ *
+ * 当前 desktop 端用 demo 模式走通基本流程;langgraph 模式后续接入。
+ */
+export const createLangGraphVideoAgentController = (options: {
+    outputBaseDir: string;
+    projectStore?: never;
+    modelProvider?: never;
+    ffmpegPath?: string;
+    ffprobePath?: string;
+}): {
+    approve: (runId: string, approved: boolean) => boolean;
+    cancel: (runId: string) => boolean;
+    regenerateScene: (
+        runId: string,
+        sceneId: string,
+        feedback: string | undefined,
+        emit: never
+    ) => Promise<{ status: 'completed' }>;
+    regenerateVoices: (
+        runId: string,
+        emit: never
+    ) => Promise<{
+        status: 'completed';
+    }>;
+    requestFullState: (runId: string) => {
+        runId: string;
+        status: 'running' | 'cancelled' | 'completed' | 'not_found';
+    };
+    start: (
+        input: never,
+        emit: never
+    ) => Promise<{
+        status: 'completed' | 'cancelled' | 'failed';
+        projectPath?: string;
+    }>;
+} => {
+    return {
+        approve: () => false,
+        cancel: () => false,
+        regenerateScene: async () => {
+            throw new Error(
+                'regenerateScene not implemented in langgraph mode'
+            );
+        },
+        regenerateVoices: async () => {
+            throw new Error(
+                'regenerateVoices not implemented in langgraph mode'
+            );
+        },
+        requestFullState: (runId) => ({ runId, status: 'not_found' }),
+        start: async () => {
+            throw new Error(
+                'langgraph 模式 controller 留待 commit 11 重写,先跑 demo 模式'
+            );
+        }
+    };
 };

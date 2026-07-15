@@ -34,27 +34,9 @@ export type AssetMatcherPayload = {
     }[];
 };
 
-/**
- * scene_approval interrupt payload / resume —— LangGraph interrupt<>() 用。
- */
-export type SceneApprovalRequest = {
-    payload: {
-        brief?: {
-            audience: string;
-            keyMessages: string[];
-            summary: string;
-            title: string;
-            tone: string;
-        };
-        scenes: {
-            endMs: number;
-            narration: string;
-            sceneId: string;
-            startMs: number;
-            visualBrief: string;
-        }[];
-    };
-    type: 'scene-plan';
-};
-
-export type SceneApprovalResume = { approved: boolean; feedback?: string };
+// SceneApprovalRequest / SceneApprovalResume 移到了 state.ts(在 graph state
+// 一组,方便 interrupt<>() 节点用)
+export {
+    type SceneApprovalRequest,
+    type SceneApprovalResume
+} from './state.ts';

@@ -43,9 +43,32 @@ export type RunStatus =
     | 'failed'
     | 'cancelled';
 
-// SceneApprovalRequest / SceneApprovalResume 在 node-payloads.ts 定义
-// (保持与 CreativeBriefPayload / ScenePlannerPayload / AssetMatcherPayload
-// 同文件,便于 LLM raw payload 类型集中管理)。
+// SceneApprovalRequest / SceneApprovalResume —— scene_approval 节点
+// interrupt<>() 用,跟 state 在同一文件方便一起导入。
+export type SceneApprovalRequest = {
+    payload: {
+        brief?: {
+            audience: string;
+            keyMessages: string[];
+            summary: string;
+            title: string;
+            tone: string;
+        };
+        scenes: {
+            endMs: number;
+            narration: string;
+            sceneId: string;
+            startMs: number;
+            visualBrief: string;
+        }[];
+    };
+    type: 'scene-plan';
+};
+
+export type SceneApprovalResume = {
+    approved: boolean;
+    feedback?: string;
+};
 
 export const VideoCreationStateAnnotation = Annotation.Root({
     input: Annotation<VideoCreationInput | undefined>(),
