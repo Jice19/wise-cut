@@ -181,7 +181,7 @@ export const analyzeAssets = async (
             // 全部降级处理,不打断流水线。commit 23:unknown 类别里嵌 error.message
             // 便于诊断(不打印 stack 防 log 噪声)。
             const unknownMsg =
-                error instanceof Error ? error.message.slice(0, 80) : '';
+                error instanceof Error ? error.message.slice(0, 200) : '';
             const reason =
                 error instanceof NoVideoStreamError
                     ? 'audio-only file'
@@ -196,6 +196,13 @@ export const analyzeAssets = async (
             console.error(
                 `[analyze-assets] degrade ${asset.assetId}: ${reason}`
             );
+            if (!(error instanceof NoVideoStreamError)) {
+                // eslint-disable-next-line no-console
+                console.error(
+                    `[analyze-assets] stack ${asset.assetId}:`,
+                    error instanceof Error ? error.stack : error
+                );
+            }
 
             results.push(
                 buildDegradedAssetAnalysis({
