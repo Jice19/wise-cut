@@ -153,9 +153,8 @@ export const createDemoVideoAgentController = (options: {
             const defaultVoiceId =
                 process.env['TTS_DEFAULT_VOICE_ID'] ??
                 'zh_female_gaolengyujie_uranus_bigtts';
-            // commit 20.8:vite rebuild kicker(workspace 包改动不触发 client
-            // rebuild,需要真改 .ts 文件让 vite 监听器 rebuild main bundle,
-            // 之前 commit 20.7 加的 estimateWordTimestamps 顶层 re-export 才生效)
+            // commit 20.10:vite rebuild kicker(workspace packages/video-agent
+            // 改动不自动触发 apps/desktop main bundle 重建,这里动一行触发)
             const { mkdir, writeFile, copyFile } = await import(
                 'node:fs/promises'
             );

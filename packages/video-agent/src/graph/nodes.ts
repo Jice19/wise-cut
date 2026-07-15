@@ -369,8 +369,17 @@ export const createVideoCreationNodes = ({
                     assetId: a.assetId,
                     filePath: a.filePath
                 })),
-                ffmpegPath: '',
-                ffprobePath: '',
+                // commit 20.9:之前硬编码 '' 让 spawn ENOENT,node 22 不会从
+                // 父进程 PATH 自动找 shell 解析。fallback 到 env / 命令名,
+                // 让 shell-like 解析处理。
+                ffmpegPath:
+                    process.env['FFMPEG_PATH'] ??
+                    process.env['FFMPEG_PATH_DARWIN'] ??
+                    'ffmpeg',
+                ffprobePath:
+                    process.env['FFPROBE_PATH'] ??
+                    process.env['FFMPEG_PATH'] ??
+                    'ffprobe',
                 frameOutputDirectory: '',
                 modelProvider: getModel(),
                 tools
