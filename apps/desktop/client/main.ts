@@ -1,6 +1,8 @@
+import type { VideoProject } from '@miaoma-magicut/video-project';
 import { app, BrowserWindow, ipcMain } from 'electron';
 
 import { IPC } from '../shared/ipc';
+import { createExportPipeline } from './export-pipeline';
 import { createVideoAgentController } from './video-agent-controller-factory';
 import {
     registerVideoAgentIpc,
@@ -198,6 +200,46 @@ const registerIpcHandlers = (controller: VideoAgentController): void => {
     // 替换成真 handler(emit 事件流到 renderer)。
     // commit 6 起 factory 切到 langgraph,这里不变。
     registerVideoAgentIpc({ controller, handle: ipcMain.handle });
+
+    // commit 16 视频导出 pipeline
+    const exportPipeline = createExportPipeline();
+    ipcMain.handle(
+        IPC.EXPORT_START,
+        async (
+            _event,
+            input: {
+                projectId: string;
+                quality: '720p' | '1080p' | '2k' | '4k';
+            }
+        ) => {
+            const project = (await ipcMain.invokeHandler(
+                IPC.VIDEO_PROJECT_READ,
+                {
+                    event: _event,
+                    projectId: input.projectId
+                }
+            )) as VideoProject;
+            const runId = `exp-${Date.now()}-${input.projectId}`;
+            exportPipeline.startExport({
+                project,
+                quality: input.quality,
+                runId
+            });
+            return { runId };
+        }
+    );
+    ipcMain.handle(IPC.EXPORT_CANCEL, (_event, input: { runId: string }) => {
+        const cancelled = exportPipeline.cancelExport(input.runId);
+        return { cancelled };
+    });
+    exportPipeline.onProgress((event) => {
+        // commit 16 推到所有 renderer
+        BrowserWindow.getAllWindows().forEach((win) => {
+            if (!win.isDestroyed()) {
+                win.webContents.send(IPC.EXPORT_PROGRESS, event);
+            }
+        });
+    });
 };
 
 app.whenReady().then(() => {
