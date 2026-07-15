@@ -185,18 +185,20 @@ const buildFallbackScenes = (
     const templates = [
         { narration: `${brief} —— 开场`, visual: '全景镜头,展示主题' },
         { narration: `${brief} —— 主体`, visual: '中景,主体内容' },
-        { narration: `${brief} —— 结尾`, visual: '特写,总结升华' }
+        { narration: `${brief} —— 转折`, visual: '近景,关键转折点' },
+        { narration: `${brief} —— 高潮`, visual: '特写,情感递进' },
+        { narration: `${brief} —— 结尾`, visual: '字幕滚动,配乐淡出' }
     ];
     return templates.map((t, i) => ({
-        endMs: (i + 1) * 5000,
+        endMs: (i + 1) * 3000,
         narration: t.narration,
         order: i,
         sceneId: `${runId}-s-${i + 1}`,
-        startMs: i * 5000,
+        startMs: i * 3000,
         subtitleLines: [
             {
-                endMs: (i + 1) * 5000,
-                startMs: i * 5000,
+                endMs: (i + 1) * 3000,
+                startMs: i * 3000,
                 text: t.narration.slice(0, 25)
             }
         ],

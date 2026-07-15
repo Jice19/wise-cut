@@ -212,13 +212,20 @@ const registerIpcHandlers = (controller: VideoAgentController): void => {
                 quality: '720p' | '1080p' | '2k' | '4k';
             }
         ) => {
-            const project = (await ipcMain.invokeHandler(
-                IPC.VIDEO_PROJECT_READ,
-                {
-                    event: _event,
-                    projectId: input.projectId
-                }
-            )) as VideoProject;
+            const project = (await (async () => {
+                const { readFile } = await import('node:fs/promises');
+                const { join } = await import('node:path');
+                const { VideoProjectSchema } = await import(
+                    '@miaoma-magicut/video-project'
+                );
+                const path = join(
+                    app.getPath('userData'),
+                    'video-projects',
+                    `${input.projectId}.json`
+                );
+                const content = await readFile(path, 'utf-8');
+                return VideoProjectSchema.parse(JSON.parse(content));
+            })()) as VideoProject;
             const runId = `exp-${Date.now()}-${input.projectId}`;
             exportPipeline.startExport({
                 project,

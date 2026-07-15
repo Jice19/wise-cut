@@ -118,14 +118,14 @@ export type ExportProgressListener = (event: {
     runId: ExportRunId;
 }) => void;
 
-export const createExportPipeline = (options: {
+export const createExportPipeline = (options?: {
     ffmpegPath?: string;
     /** 输出目录,默认 process.env['EXPORT_OUTPUT_DIR'] ?? userData/exports */
     outputDir?: string;
 }) => {
-    const ffmpegPath = options.ffmpegPath ?? resolveFfmpegPath();
+    const ffmpegPath = options?.ffmpegPath ?? resolveFfmpegPath();
     const outputDir =
-        options.outputDir ??
+        options?.outputDir ??
         process.env['EXPORT_OUTPUT_DIR'] ??
         join(process.env['HOME'] ?? '/tmp', '.miaoma-exports');
 

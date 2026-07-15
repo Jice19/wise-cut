@@ -236,7 +236,7 @@ export const createFsVideoAgentTools = (): VideoAgentTools => ({
         // durationMs 由 scene 端给(scene.endMs - scene.startMs),但 stub 不知
         // 道 scene 信息 → 用 1000ms 默认,scene_assemble 用 scene 时间覆盖
         const { estimateWordTimestamps } = await import(
-            '../tools/video-agent-tools.ts'
+            '../../tools/video-agent-tools.ts'
         );
         const wordTimestamps = estimateWordTimestamps(narration, 1000);
         return {
