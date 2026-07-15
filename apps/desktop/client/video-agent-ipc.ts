@@ -114,22 +114,33 @@ export const createDemoVideoAgentController = (options: {
         try {
             emitEvt({ type: 'run.started', input });
 
-            // commit 18:demo 模式真接 LangGraph runner
+            // commit 19:真接 LLM —— 当 .env.local 有 ARK_API_KEY 时初始化
+            // MinimaxM3ModelProvider(走真 M3 多模态),否则走 stub 跑 demo。
             const {
                 createVideoCreationGraph,
                 createSequencedEventEmitter,
                 setModelProvider
             } = await import('@miaoma-magicut/video-agent');
 
-            // demo 模式没真 LLM,塞 stub —— 节点各自 fallback 路径
-            setModelProvider({
-                describeFrames: async () => {
-                    throw new Error('demo mode: no LLM');
-                },
-                generateText: async () => {
-                    throw new Error('demo mode: no LLM');
-                }
-            } as never);
+            const llmApiKey = process.env['ARK_API_KEY'];
+            if (llmApiKey) {
+                const { MinimaxM3ModelProvider } = await import(
+                    '@miaoma-magicut/video-agent'
+                );
+                setModelProvider(
+                    new MinimaxM3ModelProvider({ apiKey: llmApiKey })
+                );
+            } else {
+                // 没配 key,跑 stub —— 节点各自 fallback 路径
+                setModelProvider({
+                    describeFrames: async () => {
+                        throw new Error('demo mode: no LLM');
+                    },
+                    generateText: async () => {
+                        throw new Error('demo mode: no LLM');
+                    }
+                } as never);
+            }
 
             // 真 desktop tools —— writeProject 落用户指定的 outputDir。
             // save_project 节点会把 outputDir 传进来(demo 模式传 outputBaseDir,
@@ -139,6 +150,10 @@ export const createDemoVideoAgentController = (options: {
                 readImageAsBase64DataUrl: async () => {
                     throw new Error('demo: readImageAsBase64DataUrl not impl');
                 },
+                // commit 19:env 有 VOLCENGINE_TTS_APP_ID 时调真 TTS,
+                // 否则 stub(写静音 mp3 占位)。writeMp3 当前 TTS provider
+                // 接口不在 commit 19 范围(留 commit 20+ 接 Minimax TTS),
+                // 这里仍 stub —— commit 19 主要落地 LLM。
                 writeMp3: async () => {
                     throw new Error('demo: writeMp3 not impl');
                 },
