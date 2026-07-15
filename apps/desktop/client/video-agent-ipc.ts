@@ -30,6 +30,8 @@ type RunState = {
     input: VideoCreationInput;
     cancelled: boolean;
     projectPath: string | undefined;
+    /** per-run 递增事件 seq */
+    seq: number;
     /** 等待 scene_approval 的 resolve 句柄,approve 时调用 */
     approvalResolve: ((approved: boolean) => void) | undefined;
     /** approve 后流水线继续推进 */
@@ -53,78 +55,17 @@ type ProjectStore = (params: {
     outputDir: string;
 }) => Promise<string>;
 
-const buildProjectId = (runId: string): string => `proj-${runId}`;
-
-const defaultProjectStore: ProjectStore = async ({
-    projectId,
-    projectJson,
-    outputDir
-}) => {
-    await mkdir(outputDir, { recursive: true });
-    const path = join(outputDir, `${projectId}.json`);
-    await writeFile(path, JSON.stringify(projectJson, null, 2), 'utf-8');
-    return path;
-};
-
-/**
- * 10 节点流水线阶段名 + 中文 label(emit 出去 renderer 显示用)。
- */
-const NODE_PIPELINE: { name: string; label: string; durationMs: number }[] = [
-    { name: 'scan_assets', label: '扫描素材', durationMs: 800 },
-    { name: 'analyze_assets', label: 'AI 理解画面', durationMs: 2500 },
-    { name: 'creative_brief', label: '生成创意简报', durationMs: 1800 },
-    { name: 'plan_scenes', label: '拆分镜', durationMs: 2000 },
-    { name: 'scene_approval', label: '等待用户审批分镜', durationMs: 5000 },
-    { name: 'match_assets', label: '匹配素材', durationMs: 1500 },
-    { name: 'synthesize_voice', label: '合成配音', durationMs: 3000 },
-    { name: 'assemble_timeline', label: '组装时间线', durationMs: 1200 },
-    { name: 'validate_project', label: '校验项目', durationMs: 300 },
-    { name: 'save_project', label: '保存项目', durationMs: 500 }
-];
-
-/**
- * scene_approval 阶段构造的 mock 分镜数据(commit 6 会被真实 plan_scenes
- * 节点产物替换)。
- */
-const buildMockScenes = (
-    runId: string
-): SceneApprovalRequest['payload']['scenes'] => {
-    const titles = ['开场镜头', '主体内容', '关键转折', '高潮迭起', '结尾升华'];
-    const narrations = [
-        '欢迎来到 AI 智能剪辑的世界',
-        '我们将为您展示一段由人工智能生成的视频',
-        '接下来是令人惊艳的转折点',
-        '画面逐渐推向高潮,情感层层递进',
-        '感谢观看,期待您的下一次创作'
-    ];
-    const visuals = [
-        '全景镜头,展示 logo 与开场动画',
-        '中景,人物对话场景',
-        '特写,关键道具与表情',
-        '远景拉近,蒙太奇剪辑',
-        '字幕滚动,配乐淡出'
-    ];
-
-    return titles.map((title, i) => ({
-        endMs: (i + 1) * 3000,
-        narration: narrations[i] ?? title,
-        sceneId: `${runId}-scene-${i + 1}`,
-        startMs: i * 3000,
-        visualBrief: visuals[i] ?? title
-    }));
-};
-
 /**
  * 创建 demo controller —— plan §16.3 阶段 B + §17.2 commit 5 主体。
+ *
+ * commit 18:demo 模式真接 LangGraph runner,扫真实素材目录 + 跑 10 节点
+ * pipeline,scene_approval interrupt 走 Command({ resume }) 真接 resume。
  */
 export const createDemoVideoAgentController = (options: {
     outputBaseDir: string;
-    projectStore?: ProjectStore;
+    projectStore?: never;
 }) => {
     const runs = new Map<string, RunState>();
-    let sequence = 0;
-
-    const store = options.projectStore ?? defaultProjectStore;
     const outputBaseDir = options.outputBaseDir;
 
     // 单 emitter:内部自动注入 runId/seq/timestamp,调用者只填事件特有字段
@@ -132,97 +73,19 @@ export const createDemoVideoAgentController = (options: {
         (runId: string, base: DesktopEventEmitter) =>
         // 用 Record 包事件主体,这样 discriminated union 的窄类型自动继承
         (event: Record<string, unknown>): void => {
-            sequence += 1;
+            const st = runs.get(runId);
+            const seq = st ? ++st.seq : 0;
             const evt = {
                 ...event,
                 runId,
-                seq: sequence,
+                seq,
                 timestamp: Date.now()
             } as unknown as AgentRunEvent;
             base(evt);
         };
 
     /**
-     * 跑单个节点的 setTimeout 模拟,emit node.started / node.completed,
-     * 节点内 50% 进度回调(给 renderer 进度条反馈)。
-     */
-    const runMockNode = async (
-        state: RunState,
-        nodeIndex: number,
-        emit: ReturnType<typeof makeEmitter>
-    ): Promise<void> => {
-        if (state.cancelled) throw new Error('cancelled');
-
-        const def = NODE_PIPELINE[nodeIndex];
-        if (!def) throw new Error(`invalid node index ${nodeIndex}`);
-
-        emit({
-            type: 'node.started',
-            nodeLabel: def.label,
-            nodeName: def.name
-        });
-
-        // 节点内进度(分两段上报)
-        await sleep(def.durationMs / 2);
-        if (state.cancelled) throw new Error('cancelled');
-        emit({
-            message: `${def.label}进行中...`,
-            nodeName: def.name,
-            progress: 50,
-            type: 'node.progress'
-        });
-
-        await sleep(def.durationMs / 2);
-        if (state.cancelled) throw new Error('cancelled');
-        emit({
-            nodeName: def.name,
-            durationMs: def.durationMs,
-            type: 'node.completed'
-        });
-    };
-
-    /**
-     * scene_approval 特殊节点 —— 暂停流水线,emit interrupt 事件,
-     * 等用户 approve。commit 6 用 LangGraph interrupt() + Command({ resume })
-     * 替代,这里用 Promise + 状态机模拟。
-     */
-    const runMockApproval = (
-        state: RunState,
-        emit: ReturnType<typeof makeEmitter>
-    ): Promise<boolean> =>
-        new Promise<boolean>((resolve, reject) => {
-            emit({
-                type: 'node.started',
-                nodeLabel: '等待用户审批分镜',
-                nodeName: 'scene_approval'
-            });
-
-            const approvalPayload: SceneApprovalRequest = {
-                payload: {
-                    brief: {
-                        audience: '短视频用户',
-                        keyMessages: ['AI 自动剪辑', '一键生成'],
-                        summary: `${state.input.brief} 的短视频创意简报`,
-                        title: `创意简报 ${state.input.runId}`,
-                        tone: '友好亲切'
-                    },
-                    scenes: buildMockScenes(state.input.runId)
-                },
-                type: 'scene-plan'
-            };
-
-            emit({
-                type: 'interrupt',
-                interruptType: 'scene_approval',
-                payload: approvalPayload
-            });
-
-            state.approvalResolve = resolve;
-            state.approvalReject = reject;
-        });
-
-    /**
-     * 主入口 —— 跑完整 10 节点流水线。
+     * 主入口 —— commit 18:走 createVideoCreationGraph 真跑 10 节点。
      */
     const start = async (
         input: VideoCreationInput,
@@ -241,6 +104,7 @@ export const createDemoVideoAgentController = (options: {
             cancelled: false,
             input,
             projectPath: undefined,
+            seq: 0,
             workDir
         };
         runs.set(input.runId, state);
@@ -250,125 +114,143 @@ export const createDemoVideoAgentController = (options: {
         try {
             emitEvt({ type: 'run.started', input });
 
-            // 跑前 4 节点:scan / analyze / brief / plan
-            for (let i = 0; i < 4; i += 1) {
-                await runMockNode(state, i, emitEvt);
-            }
+            // commit 18:demo 模式真接 LangGraph runner
+            const {
+                createVideoCreationGraph,
+                createSequencedEventEmitter,
+                setModelProvider
+            } = await import('@miaoma-magicut/video-agent');
 
-            // 跑 scene_approval(暂停 + 等用户)
-            emitEvt({
-                type: 'node.completed',
-                nodeName: 'plan_scenes',
-                durationMs: 0
+            // demo 模式没真 LLM,塞 stub —— 节点各自 fallback 路径
+            setModelProvider({
+                describeFrames: async () => {
+                    throw new Error('demo mode: no LLM');
+                },
+                generateText: async () => {
+                    throw new Error('demo mode: no LLM');
+                }
+            } as never);
+
+            // 真 desktop tools —— writeProject 落用户指定的 outputDir。
+            // save_project 节点会把 outputDir 传进来(demo 模式传 outputBaseDir,
+            // 真实 electron 启动时 main.ts 会塞 MIAOMA_PROJECT_OUTPUT_DIR)。
+            const { mkdir, writeFile } = await import('node:fs/promises');
+            const desktopTools = {
+                readImageAsBase64DataUrl: async () => {
+                    throw new Error('demo: readImageAsBase64DataUrl not impl');
+                },
+                writeMp3: async () => {
+                    throw new Error('demo: writeMp3 not impl');
+                },
+                writeProject: async (input: {
+                    outputDir: string;
+                    projectId: string;
+                    projectJson: unknown;
+                }) => {
+                    await mkdir(input.outputDir, { recursive: true });
+                    const filePath = join(
+                        input.outputDir,
+                        `${input.projectId}.json`
+                    );
+                    await writeFile(
+                        filePath,
+                        JSON.stringify(input.projectJson, null, 2),
+                        'utf-8'
+                    );
+                    return filePath;
+                }
+            };
+
+            // 让 save_project 节点走 demo controller 自己的 outputBaseDir
+            // (覆盖节点默认的 ~/.miaoma-projects,electron 启动时再覆盖)
+            process.env['MIAOMA_PROJECT_OUTPUT_DIR'] = outputBaseDir;
+
+            const sequencedEmit = createSequencedEventEmitter({
+                runId: input.runId,
+                sink: (evt) => emitEvt(evt as never)
             });
-            const approved = await runMockApproval(state, emitEvt);
-            if (!approved) {
-                emitEvt({ type: 'run.cancelled' });
-                return { status: 'cancelled' };
-            }
 
-            emitEvt({
-                type: 'node.completed',
-                nodeName: 'scene_approval',
-                durationMs: 0
+            const runner = createVideoCreationGraph({
+                emit: (evt) => sequencedEmit(evt as never),
+                tools: desktopTools as never
             });
 
-            // 跑后 5 节点:match / voice / assemble / validate / save
-            for (let i = 5; i < NODE_PIPELINE.length; i += 1) {
-                await runMockNode(state, i, emitEvt);
+            // 真跑 runner —— scan / analyze / brief / plan / scene_approval
+            const firstResult = await runner.start(input);
+
+            if (firstResult.status === 'failed') {
+                emitEvt({
+                    error: firstResult.errors.join('; '),
+                    type: 'run.failed'
+                });
+                return { status: 'failed' };
             }
 
-            // 落盘 commit 7 完整 VideoProject —— demo 模式用 mock scenes
-            // 直接构造最小合法 VideoProject(通过 VideoProjectSchema.parse)
-            const { VideoProjectSchema } = await import(
-                '@miaoma-magicut/video-project'
-            );
+            if (firstResult.status === 'waiting_for_approval') {
+                // emit interrupt 事件(让 UI 弹窗)
+                emitEvt({
+                    type: 'interrupt',
+                    interruptType: 'scene_approval',
+                    payload: firstResult.approval ?? {}
+                });
 
-            const projectId = buildProjectId(input.runId);
-            const mockScenes = buildMockScenes(input.runId);
-            const totalDurationMs = mockScenes.reduce(
-                (acc, s) => Math.max(acc, s.endMs),
-                0
-            );
-            const now = new Date().toISOString();
-            const project = VideoProjectSchema.parse({
-                agentConversation: [],
-                assets: {
-                    music: [],
-                    videos: [
-                        {
-                            assetId: `${input.runId}-asset-1`,
-                            durationMs: totalDurationMs,
-                            filePath: `${input.sourceAssetDirectory}/sample.mp4`,
-                            kind: 'video'
-                        }
-                    ],
-                    voices: mockScenes.map((s, i) => ({
-                        assetId: s.sceneId,
-                        durationMs: s.endMs - s.startMs,
-                        filePath: `${input.runId}-voice-${i + 1}.mp3`,
-                        kind: 'voice'
-                    }))
-                },
-                canvas: {
-                    durationMs: totalDurationMs,
-                    fps: 30,
-                    height: 1080,
-                    safeArea: {
-                        bottomPx: 0,
-                        leftPx: 0,
-                        rightPx: 0,
-                        topPx: 0
-                    },
-                    width: 1920
-                },
-                metadata: {
-                    createdAt: now,
-                    projectId,
-                    title: input.brief,
-                    updatedAt: now
-                },
-                renderConfig: { format: 'mp4', quality: 'preview' },
-                schemaVersion: '1.0.0',
-                tracks: [
-                    {
-                        clips: mockScenes.map((s) => ({
-                            assetId: `${input.runId}-asset-1`,
-                            endMs: s.endMs,
-                            kind: 'video',
-                            playbackRate: 1,
-                            startMs: s.startMs
-                        })),
-                        kind: 'video',
-                        trackId: 'video-track'
-                    },
-                    {
-                        clips: mockScenes.map((s) => ({
-                            assetId: s.sceneId,
-                            endMs: s.endMs,
-                            gainDb: 0,
-                            kind: 'voice',
-                            startMs: s.startMs
-                        })),
-                        kind: 'voice',
-                        trackId: 'voice-track'
+                // 等 renderer 调 approve 或 cancel 调用把 approvalReject 唤醒
+                const outcome = await new Promise<'cancelled' | 'approved'>(
+                    (resolve) => {
+                        state.approvalResolve = (ok) =>
+                            resolve(ok ? 'approved' : 'cancelled');
+                        state.approvalReject = () => resolve('cancelled');
                     }
-                ]
-            });
+                );
 
-            const projectPath = await store({
-                outputDir: outputBaseDir,
-                projectId,
-                projectJson: project
-            });
-            state.projectPath = projectPath;
+                if (outcome === 'cancelled') {
+                    emitEvt({ type: 'run.cancelled' });
+                    return { status: 'cancelled' };
+                }
 
+                emitEvt({
+                    type: 'node.completed',
+                    nodeName: 'scene_approval',
+                    durationMs: 0
+                });
+
+                // 真 resume graph —— 让后续 match / voice / assemble / save 节点真跑
+                const resumed = await runner.resume({
+                    approval: { approved: true },
+                    runId: input.runId
+                });
+
+                if (resumed.status === 'failed') {
+                    emitEvt({
+                        error: resumed.errors.join('; '),
+                        type: 'run.failed'
+                    });
+                    return { status: 'failed' };
+                }
+
+                state.projectPath = resumed.savedProjectPath;
+                emitEvt({
+                    durationMs: Date.now() - startedAt,
+                    projectPath: resumed.savedProjectPath,
+                    type: 'run.completed'
+                });
+                return {
+                    projectPath: resumed.savedProjectPath,
+                    status: 'completed'
+                };
+            }
+
+            // completed 状态(罕见,fallback 全通过)
+            state.projectPath = firstResult.savedProjectPath;
             emitEvt({
                 durationMs: Date.now() - startedAt,
-                projectPath,
+                projectPath: firstResult.savedProjectPath,
                 type: 'run.completed'
             });
-            return { projectPath, status: 'completed' };
+            return {
+                projectPath: firstResult.savedProjectPath,
+                status: 'completed'
+            };
         } catch (error) {
             if (state.cancelled) {
                 emitEvt({ type: 'run.cancelled' });
@@ -380,10 +262,7 @@ export const createDemoVideoAgentController = (options: {
             });
             throw error;
         } finally {
-            // 临时目录清理(commit 8 之后改成保留供 UI 看)
-            await rm(workDir, { recursive: true, force: true }).catch(() => {
-                // ignore cleanup failure
-            });
+            await rm(workDir, { recursive: true, force: true }).catch(() => {});
             runs.delete(input.runId);
         }
     };
