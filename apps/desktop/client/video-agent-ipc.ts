@@ -143,13 +143,15 @@ export const createDemoVideoAgentController = (options: {
                 } as never);
             }
 
-            // commit 20 / 20.2:env 有 VOLCENGINE_TTS_APP_ID / 新名
+            // commit 20.3:env 有 VOLCENGINE_TTS_APP_ID / 新名
             // VOLCENGINE_TTS_API_KEY 时 writeMp3 走真 TTS 路径,否则 stub。
             // 真 TTS 没有字级时间戳返回值,用 estimateWordTimestamps 估算(原
             // synthesize_voice 节点 fallback 也是这条)。
             const ttsApiKey =
                 process.env['VOLCENGINE_TTS_APP_ID'] ??
                 process.env['VOLCENGINE_TTS_API_KEY'];
+            const defaultVoiceId =
+                process.env['TTS_DEFAULT_VOICE_ID'] ?? 'zh_female_v1';
             const { mkdir, writeFile, copyFile } = await import(
                 'node:fs/promises'
             );
@@ -262,8 +264,20 @@ export const createDemoVideoAgentController = (options: {
                 tools: desktopTools as never
             });
 
+            // commit 20.4:用户没指定 voice 时,塞 env 默认 voice id(避免
+            // synthesize_voice 节点 fallback 'default-female' 在火山方舟 API
+            // 返回 'resource ID is mismatched with speaker related resource')。
+            const inputWithVoice = {
+                ...input,
+                voiceConfig: input.voiceConfig ?? {
+                    provider: 'volcengine-seed-tts',
+                    voiceId: defaultVoiceId
+                },
+                selectedVoiceType: defaultVoiceId
+            } as typeof input;
+
             // 真跑 runner —— scan / analyze / brief / plan / scene_approval
-            const firstResult = await runner.start(input);
+            const firstResult = await runner.start(inputWithVoice);
 
             if (firstResult.status === 'failed') {
                 emitEvt({
