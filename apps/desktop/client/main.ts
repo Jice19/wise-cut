@@ -1,5 +1,17 @@
+import { join } from 'node:path';
+
 import type { VideoProject } from '@miaoma-magicut/video-project';
+import { config as loadEnv } from 'dotenv';
 import { app, BrowserWindow, ipcMain } from 'electron';
+
+// commit 20.1:把 .env.local 装到 process.env(main 进程能看到
+// ARK_API_KEY / VOLCENGINE_TTS_APP_ID)。dotenv 不会覆盖已存在的 env var,
+// 只有 process.env 没这个 key 时才装。查找顺序:仓库根(优先)→ apps/desktop。
+const loadEnvFrom = (rel: string): void => {
+    loadEnv({ path: join(__dirname, '..', '..', '..', rel) });
+};
+loadEnvFrom('.env.local'); // 仓库根
+loadEnv({ path: join(__dirname, '..', '..', '.env.local') }); // apps/desktop/
 
 import { IPC } from '../shared/ipc';
 import { createExportPipeline } from './export-pipeline';
