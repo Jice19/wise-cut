@@ -151,7 +151,8 @@ export const createDemoVideoAgentController = (options: {
                 process.env['VOLCENGINE_TTS_APP_ID'] ??
                 process.env['VOLCENGINE_TTS_API_KEY'];
             const defaultVoiceId =
-                process.env['TTS_DEFAULT_VOICE_ID'] ?? 'zh_female_v1';
+                process.env['TTS_DEFAULT_VOICE_ID'] ??
+                'zh_female_gaolengyujie_uranus_bigtts';
             const { mkdir, writeFile, copyFile } = await import(
                 'node:fs/promises'
             );
