@@ -114,15 +114,16 @@ export const createDemoVideoAgentController = (options: {
         try {
             emitEvt({ type: 'run.started', input });
 
-            // commit 19:真接 LLM —— 当 .env.local 有 ARK_API_KEY 时初始化
-            // MinimaxM3ModelProvider(走真 M3 多模态),否则走 stub 跑 demo。
+            // commit 19/20.2:真接 LLM / TTS —— 双重 key 名兼容(老
+            // ARK_API_KEY / 新 API_KEY)。两者任一存在即走真路径。
             const {
                 createVideoCreationGraph,
                 createSequencedEventEmitter,
                 setModelProvider
             } = await import('@miaoma-magicut/video-agent');
 
-            const llmApiKey = process.env['ARK_API_KEY'];
+            const llmApiKey =
+                process.env['ARK_API_KEY'] ?? process.env['API_KEY'];
             if (llmApiKey) {
                 const { MinimaxM3ModelProvider } = await import(
                     '@miaoma-magicut/video-agent'
@@ -142,11 +143,13 @@ export const createDemoVideoAgentController = (options: {
                 } as never);
             }
 
-            // commit 20:env 有 VOLCENGINE_TTS_APP_ID 时 writeMp3 走真 TTS 路径
-            // (VolcengineTtsProvider + tts-cache),否则 stub。
+            // commit 20 / 20.2:env 有 VOLCENGINE_TTS_APP_ID / 新名
+            // VOLCENGINE_TTS_API_KEY 时 writeMp3 走真 TTS 路径,否则 stub。
             // 真 TTS 没有字级时间戳返回值,用 estimateWordTimestamps 估算(原
             // synthesize_voice 节点 fallback 也是这条)。
-            const ttsApiKey = process.env['VOLCENGINE_TTS_APP_ID'];
+            const ttsApiKey =
+                process.env['VOLCENGINE_TTS_APP_ID'] ??
+                process.env['VOLCENGINE_TTS_API_KEY'];
             const { mkdir, writeFile, copyFile } = await import(
                 'node:fs/promises'
             );
