@@ -24,7 +24,7 @@ import { interrupt } from '@langchain/langgraph';
 import type { VideoProject } from '@miaoma-magicut/video-project';
 import { VideoProjectSchema } from '@miaoma-magicut/video-project';
 
-import type { AgentRunEventEmitter } from '../events/event-emitter.ts';
+import type { SequencedEventEmitter } from '../events/event-emitter.ts';
 import { serializeError } from '../events/event-emitter.ts';
 import {
     ASSET_MATCHER_SYSTEM_PROMPT,
@@ -34,6 +34,10 @@ import {
     CREATIVE_BRIEF_SYSTEM_PROMPT,
     CREATIVE_BRIEF_USER_PROMPT_TEMPLATE
 } from '../prompts/creative-brief.ts';
+import {
+    FRAME_WINDOW_ANALYSIS_SYSTEM_PROMPT,
+    FRAME_WINDOW_ANALYSIS_USER_PROMPT_TEMPLATE
+} from '../prompts/frame-window-analysis.ts';
 import {
     SCENE_PLANNER_SYSTEM_PROMPT,
     SCENE_PLANNER_USER_PROMPT_TEMPLATE
@@ -47,11 +51,16 @@ import {
 import type {
     AssetMatcherPayload,
     CreativeBriefPayload,
+    KeyFrameWindowPayload,
     SceneApprovalRequest,
     SceneApprovalResume,
     ScenePlannerPayload
 } from './node-payloads.ts';
-import type { VideoCreationGraphState, VideoCreationInput } from './state.ts';
+import type {
+    VideoAnalysisResult,
+    VideoCreationGraphState,
+    VideoCreationInput
+} from './state.ts';
 import {
     analyzeAssets,
     type AnalyzeAssetsInput
@@ -69,7 +78,7 @@ const createInstrumentedNode =
         nodeName,
         run
     }: {
-        emit: AgentRunEventEmitter;
+        emit: SequencedEventEmitter;
         nodeName: string;
         run: (state: VideoCreationGraphState) => Promise<GraphNodeUpdate>;
     }) =>
@@ -195,6 +204,122 @@ const buildFallbackScenes = (
     }));
 };
 
+/**
+ * commit 15 — fallback:per-frame 描述没生成时,把所有帧塞进一个单窗。
+ */
+const buildFallbackAnalysis = (
+    assets: ReturnType<typeof analyzeAssets> extends Promise<infer R>
+        ? R
+        : never
+): VideoAnalysisResult => {
+    const allFrames = assets.flatMap((a) => a.frames);
+    if (allFrames.length === 0) {
+        return {
+            keyFrameAnalysis: [
+                {
+                    frameIds: [],
+                    summary: '无可用帧',
+                    windowEnd: 0,
+                    windowIndex: 0,
+                    windowStart: 0
+                }
+            ],
+            overallUnderstanding: '没有可分析的视频帧',
+            summary: '空分析'
+        };
+    }
+    const totalDuration = Math.max(
+        ...allFrames.map((f) => f.timestampMs + 1000)
+    );
+    return {
+        keyFrameAnalysis: [
+            {
+                frameIds: allFrames.map((f) => f.frameId),
+                summary: allFrames
+                    .slice(0, 3)
+                    .map((f) => f.description)
+                    .filter(Boolean)
+                    .join('; ')
+                    .slice(0, 80),
+                windowEnd: totalDuration,
+                windowIndex: 0,
+                windowStart: 0
+            }
+        ],
+        overallUnderstanding:
+            allFrames
+                .slice(0, 5)
+                .map((f) => f.description)
+                .filter(Boolean)
+                .join(' ')
+                .slice(0, 200) || 'fallback 整体理解',
+        summary: 'fallback 整体摘要'
+    };
+};
+
+/**
+ * commit 15 — 帧分组分析 LLM 调用 + fallback。
+ * 在 analyze_assets 节点末尾被调,产出 VideoAnalysisResult 写进 state.analysisResult,
+ * 之后 assemble_timeline 节点会把它嵌进 VideoProject.aiRunMetadata。
+ */
+const runFrameWindowAnalysis = async (
+    assets: ReturnType<typeof analyzeAssets> extends Promise<infer R>
+        ? R
+        : never
+): Promise<VideoAnalysisResult> => {
+    const allFrames = assets.flatMap((a) =>
+        a.frames.map((f) => ({
+            description: f.description,
+            frameId: f.frameId,
+            mood: f.mood,
+            timestampMs: f.timestampMs
+        }))
+    );
+    if (allFrames.length === 0) {
+        return buildFallbackAnalysis(assets);
+    }
+
+    // 视频时长取最大 timestamp + 1s 缓冲
+    const totalDurationMs =
+        Math.max(...allFrames.map((f) => f.timestampMs)) + 1000;
+    const fps = 30; // fallback 帧率,真值由 probeMedia 给,这里只用于 prompt 元数据
+
+    const userPrompt = FRAME_WINDOW_ANALYSIS_USER_PROMPT_TEMPLATE.replace(
+        '{durationMs}',
+        String(totalDurationMs)
+    )
+        .replace('{fps}', String(fps))
+        .replace('{frameCount}', String(allFrames.length))
+        .replace('{framesJson}', JSON.stringify(allFrames, null, 2));
+
+    try {
+        const result = await getModel().generateText({
+            system: FRAME_WINDOW_ANALYSIS_SYSTEM_PROMPT,
+            user: userPrompt
+        });
+        const json = extractJsonFromLlmResponse(
+            result.text
+        ) as KeyFrameWindowPayload;
+        return {
+            keyFrameAnalysis: json.windowAnalysis.map((w) => ({
+                frameIds: w.frameIds,
+                summary: w.summary,
+                windowEnd: w.windowEnd,
+                windowIndex: w.windowIndex,
+                windowStart: w.windowStart
+            })),
+            overallUnderstanding: json.overallUnderstanding,
+            summary: json.summary
+        };
+    } catch (error) {
+        // eslint-disable-next-line no-console
+        console.warn(
+            `[frame_window_analysis] LLM failed, using fallback: ${(error as Error).message}`
+        );
+        return buildFallbackAnalysis(assets);
+    }
+};
+
 // ---------------------------------------------------------------------------
 // 公共 fallback / model access
 // ---------------------------------------------------------------------------
@@ -223,7 +348,7 @@ export const createVideoCreationNodes = ({
     emit,
     tools
 }: {
-    emit: AgentRunEventEmitter;
+    emit: SequencedEventEmitter;
     tools: VideoAgentTools;
 }) => {
     // 公共 emit 函数被 createInstrumentedNode 引用
@@ -249,7 +374,9 @@ export const createVideoCreationNodes = ({
                 tools
             };
             const enriched = await analyzeAssets(analyzeInput);
-            return { assets: enriched };
+            // commit 15:per-frame 描述跑完后,调 LLM 按时间窗聚合 + 整体理解
+            const analysisResult = await runFrameWindowAnalysis(enriched);
+            return { analysisResult, assets: enriched };
         }),
 
         creativeBrief: instrumented('creative_brief', async (state) => {
@@ -468,7 +595,21 @@ export const createVideoCreationNodes = ({
                 0
             );
             const project: VideoProject = {
-                agentConversation: [],
+                agentConversation:
+                    state.analysisResult !== undefined
+                        ? [
+                              {
+                                  blocks: [
+                                      {
+                                          analysis: state.analysisResult,
+                                          kind: 'analysis'
+                                      }
+                                  ],
+                                  createdAtMs: Date.now(),
+                                  role: 'assistant'
+                              }
+                          ]
+                        : [],
                 assets: {
                     music: [],
                     videos: state.assets.map((a) => ({

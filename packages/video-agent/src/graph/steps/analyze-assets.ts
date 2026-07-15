@@ -54,24 +54,8 @@ export type AnalyzeAssetsInput = {
     tools: VideoAgentTools;
 };
 
-/**
- * commit 11 抽帧策略 —— 把用户 options 转成等效 durationSec 让
- * buildKeyframeParams 重新算。用户设的 sampleIntervalSec 直接覆盖,maxFrames
- * 受 20 帧上限约束。
- */
-const applyOverride = (
-    durationSec: number,
-    options: NonNullable<AnalyzeAssetsInput['extractKeyframesOptions']>
-): number => {
-    if (options.sampleIntervalSec !== undefined) {
-        // 强制用用户 sampleIntervalSec,无视 duration 阈值
-        // maxFrames 用用户传或按新 sampleIntervalSec 算
-        return options.maxFrames !== undefined
-            ? options.maxFrames
-            : Math.ceil(durationSec / options.sampleIntervalSec);
-    }
-    return durationSec;
-};
+// commit 11 applyOverride 已删 — buildKeyframeParams 直接接受 options
+// (内部已支持 sampleIntervalSec 覆盖,maxFrames 用户传或 20 帧上限)
 
 /**
  * 单个 asset 失败时,产出一个"空描述"的 AssetAnalysis,让 pipeline 继续。
@@ -235,7 +219,7 @@ export const createFsVideoAgentTools = (): VideoAgentTools => ({
         const bytes = await readFile(path);
         return `data:${mimeType};base64,${bytes.toString('base64')}`;
     },
-    async writeMp3({ audioFilePath, narration, voiceId }) {
+    async writeMp3({ audioFilePath, narration }) {
         // commit 6.5 stub → commit 13 升级:写一个最小合法 mp3 header(便于
         // ffmpeg concat 跟视频拼)+ 估算字级时间戳(commit 14 接真 TTS 时
         // 由真 API 响应替换)。

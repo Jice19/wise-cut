@@ -241,6 +241,27 @@ export const ProjectAssetSchema = z.object({
     kind: z.enum(['video', 'voice', 'music'])
 });
 
+/**
+ * commit 15 — 单个时间窗的帧分组摘要。
+ * (放在前面,AgentConversationAnalysisBlockSchema 引用)
+ */
+export const KeyFrameWindowAnalysisSchema = z.object({
+    frameIds: z.array(z.string().min(1)),
+    summary: z.string().min(1),
+    windowEnd: z.number().int().nonnegative(),
+    windowIndex: z.number().int().nonnegative(),
+    windowStart: z.number().int().nonnegative()
+});
+
+/**
+ * commit 15 — 帧分组分析整体结果(由 LLM 产出,assemble_timeline 写进 project)。
+ */
+export const VideoAnalysisResultSchema = z.object({
+    keyFrameAnalysis: z.array(KeyFrameWindowAnalysisSchema),
+    overallUnderstanding: z.string().min(1),
+    summary: z.string().min(1)
+});
+
 export const ProjectAssetsSchema = z.object({
     music: z.array(ProjectAssetSchema),
     videos: z.array(ProjectAssetSchema),
@@ -277,12 +298,22 @@ export const AgentConversationRunSummaryBlockSchema = z.object({
     status: z.enum(['completed', 'failed', 'cancelled'])
 });
 
+/**
+ * commit 15 — 帧分组分析结果(放在 agentConversation 第一条消息,
+ * editor 渲染时直接读这个 block 显示整体摘要 + 窗分析)
+ */
+export const AgentConversationAnalysisBlockSchema = z.object({
+    analysis: VideoAnalysisResultSchema,
+    kind: z.literal('analysis')
+});
+
 export const AgentConversationBlockSchema = z.discriminatedUnion('kind', [
     AgentConversationTextBlockSchema,
     AgentConversationScenesBlockSchema,
     AgentConversationApprovalRequestBlockSchema,
     AgentConversationApprovalResponseBlockSchema,
-    AgentConversationRunSummaryBlockSchema
+    AgentConversationRunSummaryBlockSchema,
+    AgentConversationAnalysisBlockSchema
 ]);
 
 export const AgentConversationMessageSchema = z.object({
@@ -294,6 +325,7 @@ export const AgentConversationMessageSchema = z.object({
 // ----- AiRunMetadata -----
 
 export const AiRunMetadataSchema = z.object({
+    analysisResult: VideoAnalysisResultSchema.optional(),
     brief: CreativeBriefSchema,
     runId: z.string().min(1),
     scenes: z.array(SceneSchema)
@@ -386,4 +418,11 @@ export type AgentConversationMessage = z.infer<
 >;
 
 export type AiRunMetadata = z.infer<typeof AiRunMetadataSchema>;
+export type KeyFrameWindowAnalysis = z.infer<
+    typeof KeyFrameWindowAnalysisSchema
+>;
+export type VideoAnalysisResult = z.infer<typeof VideoAnalysisResultSchema>;
+export type AgentConversationAnalysisBlock = z.infer<
+    typeof AgentConversationAnalysisBlockSchema
+>;
 export type VideoProject = z.infer<typeof VideoProjectSchema>;

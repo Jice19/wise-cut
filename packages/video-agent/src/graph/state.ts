@@ -70,6 +70,24 @@ export type SceneApprovalResume = {
     feedback?: string;
 };
 
+/**
+ * commit 15 — 帧分组分析结果,存到 VideoProject.aiRunMetadata。
+ * 由 analyzeAssets 之后调 LLM 按时间窗聚合输出。
+ */
+export type KeyFrameWindowAnalysis = {
+    frameIds: string[];
+    summary: string;
+    windowEnd: number;
+    windowIndex: number;
+    windowStart: number;
+};
+
+export type VideoAnalysisResult = {
+    keyFrameAnalysis: KeyFrameWindowAnalysis[];
+    overallUnderstanding: string;
+    summary: string;
+};
+
 export const VideoCreationStateAnnotation = Annotation.Root({
     input: Annotation<VideoCreationInput | undefined>(),
     assets: Annotation<AssetAnalysis[]>(),
@@ -83,7 +101,9 @@ export const VideoCreationStateAnnotation = Annotation.Root({
     status: Annotation<RunStatus>(),
     // commit 12:scene_approval 驳回/反馈修改时存用户 feedback,
     // conditional edge 看到 feedback 非空就跳回 plan_scenes 重跑。
-    feedback: Annotation<string | undefined>()
+    feedback: Annotation<string | undefined>(),
+    // commit 15:帧分组分析结果(LLM 按时间窗聚合 + 整体理解)
+    analysisResult: Annotation<VideoAnalysisResult | undefined>()
 });
 
 export type VideoCreationGraphState = typeof VideoCreationStateAnnotation.State;
@@ -94,6 +114,7 @@ export type VideoCreationGraphState = typeof VideoCreationStateAnnotation.State;
 export const buildInitialState = (
     input: VideoCreationInput
 ): VideoCreationGraphState => ({
+    analysisResult: undefined,
     assets: [],
     brief: undefined,
     errors: [],

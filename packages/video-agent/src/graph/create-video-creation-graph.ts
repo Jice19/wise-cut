@@ -35,12 +35,7 @@ import {
 } from '@langchain/langgraph';
 import type { VideoProject } from '@miaoma-magicut/video-project';
 
-import type { AgentRunEvent } from '../events/agent-run-event.ts';
-import type { AgentRunEventEmitter } from '../events/event-emitter.ts';
-import {
-    createSequencedEventEmitter,
-    serializeError
-} from '../events/event-emitter.ts';
+import { createSequencedEventEmitter } from '../events/event-emitter.ts';
 import type { VideoAgentTools } from '../tools/video-agent-tools.ts';
 import { createVideoCreationCheckpointer } from './checkpoint.ts';
 import { createVideoCreationNodes } from './nodes.ts';
@@ -112,7 +107,11 @@ const getStateValues = async ({
 // 编译图(闭包,每 runner 实例一份)
 // ---------------------------------------------------------------------------
 
-import { AgentRunEventSink } from '../events/event-emitter.ts';
+import {
+    type AgentRunEventSink,
+    type SequencedEventEmitter,
+    serializeError
+} from '../events/event-emitter.ts';
 
 const createCompiledGraph = ({
     checkpointer,
@@ -120,7 +119,7 @@ const createCompiledGraph = ({
     tools
 }: {
     checkpointer: BaseCheckpointSaver;
-    emit: AgentRunEventEmitter;
+    emit: SequencedEventEmitter;
     tools: VideoAgentTools;
 }) => {
     const nodes = createVideoCreationNodes({ emit, tools });
@@ -168,7 +167,7 @@ export const createVideoCreationGraph = ({
     tools
 }: {
     checkpointer?: BaseCheckpointSaver;
-    emit?: (event: AgentRunEvent) => void;
+    emit?: (event: Parameters<SequencedEventEmitter>[0]) => void;
     tools: VideoAgentTools;
 }): VideoCreationGraphRunner => {
     const eventEmitters = new Map<
@@ -193,9 +192,9 @@ export const createVideoCreationGraph = ({
 
     const app = createCompiledGraph({
         checkpointer,
-        emit: (event) => {
+        emit: ((event: Parameters<SequencedEventEmitter>[0]) => {
             getEmitter(event.runId)(event);
-        },
+        }) as SequencedEventEmitter,
         tools
     });
 

@@ -74,15 +74,12 @@ export const getCachedOrNull = async (
 ): Promise<TtsWriteResult | null> => {
     const key = computeTtsCacheKey(narration, voiceId);
     try {
-        const [mp3Buf, metaJson] = await Promise.all([
-            readFile(cachePath(key)),
-            readFile(metadataPath(key), 'utf-8')
-        ]);
+        // 读 mp3 是为了验证文件存在,wordTimestamps 从 metadata 拿
+        await readFile(cachePath(key));
+        const metaJson = await readFile(metadataPath(key), 'utf-8');
         const meta = JSON.parse(metaJson) as TtsCacheMetadata;
-        // mp3 写到一个临时路径(避免覆盖 cache 路径)+ 返回给上层
         return {
             audioFilePath: cachePath(key),
-            // wordTimestamps 直接从 metadata 拿(避免再次 parse mp3)
             wordTimestamps: meta.wordTimestamps
         };
     } catch {

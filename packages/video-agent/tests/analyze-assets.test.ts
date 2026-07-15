@@ -50,6 +50,10 @@ const stubModel = (responses: Record<string, string>): ModelProvider => ({
                 objects: ['人']
             };
         });
+    },
+    // commit 15 stub:跑帧分组分析时报 no LLM key
+    async generateText() {
+        throw new Error('no LLM key');
     }
 });
 
@@ -148,6 +152,9 @@ describe.skipIf(!hasFfmpeg)('analyzeAssets', () => {
         const failingModel: ModelProvider = {
             async describeFrames() {
                 throw new Error('mock M3 failure');
+            },
+            async generateText() {
+                throw new Error('no LLM key');
             }
         };
 

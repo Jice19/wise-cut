@@ -34,6 +34,21 @@ export type AssetMatcherPayload = {
     }[];
 };
 
+/**
+ * commit 15 — 帧分组分析 LLM 输出(按时间窗聚合)。
+ */
+export type KeyFrameWindowPayload = {
+    windowAnalysis: {
+        frameIds: string[];
+        summary: string;
+        windowEnd: number;
+        windowIndex: number;
+        windowStart: number;
+    }[];
+    summary: string;
+    overallUnderstanding: string;
+};
+
 // SceneApprovalRequest / SceneApprovalResume 移到了 state.ts(在 graph state
 // 一组,方便 interrupt<>() 节点用)
 export {
