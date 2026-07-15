@@ -142,21 +142,90 @@ export const createDemoVideoAgentController = (options: {
                 } as never);
             }
 
-            // 真 desktop tools —— writeProject 落用户指定的 outputDir。
-            // save_project 节点会把 outputDir 传进来(demo 模式传 outputBaseDir,
-            // 真实 electron 启动时 main.ts 会塞 MIAOMA_PROJECT_OUTPUT_DIR)。
-            const { mkdir, writeFile } = await import('node:fs/promises');
+            // commit 20:env 有 VOLCENGINE_TTS_APP_ID 时 writeMp3 走真 TTS 路径
+            // (VolcengineTtsProvider + tts-cache),否则 stub。
+            // 真 TTS 没有字级时间戳返回值,用 estimateWordTimestamps 估算(原
+            // synthesize_voice 节点 fallback 也是这条)。
+            const ttsApiKey = process.env['VOLCENGINE_TTS_APP_ID'];
+            const { mkdir, writeFile, copyFile } = await import(
+                'node:fs/promises'
+            );
             const desktopTools = {
                 readImageAsBase64DataUrl: async () => {
                     throw new Error('demo: readImageAsBase64DataUrl not impl');
                 },
-                // commit 19:env 有 VOLCENGINE_TTS_APP_ID 时调真 TTS,
-                // 否则 stub(写静音 mp3 占位)。writeMp3 当前 TTS provider
-                // 接口不在 commit 19 范围(留 commit 20+ 接 Minimax TTS),
-                // 这里仍 stub —— commit 19 主要落地 LLM。
-                writeMp3: async () => {
-                    throw new Error('demo: writeMp3 not impl');
-                },
+                writeMp3: ttsApiKey
+                    ? async (input: {
+                          audioFilePath: string;
+                          narration: string;
+                          voiceId: string;
+                      }) => {
+                          const { estimateWordTimestamps } = await import(
+                              '@miaoma-magicut/video-agent'
+                          );
+                          const { getCachedOrNull, writeTtsCache } =
+                              await import('./tts-cache.ts');
+                          const { VolcengineTtsProvider } = await import(
+                              '../scripts/api-probe/providers/volcengine-tts-provider.ts'
+                          );
+
+                          // 1. 缓存命中 → 直接拷到目标 path
+                          const cached = await getCachedOrNull(
+                              input.narration,
+                              input.voiceId
+                          );
+                          if (cached) {
+                              await mkdir(
+                                  input.audioFilePath
+                                      .split('/')
+                                      .slice(0, -1)
+                                      .join('/'),
+                                  { recursive: true }
+                              );
+                              await copyFile(
+                                  cached.audioFilePath,
+                                  input.audioFilePath
+                              );
+                              return { wordTimestamps: cached.wordTimestamps };
+                          }
+
+                          // 2. miss → 调真 TTS,落缓存 + 拷到目标 path
+                          await mkdir(
+                              input.audioFilePath
+                                  .split('/')
+                                  .slice(0, -1)
+                                  .join('/'),
+                              { recursive: true }
+                          );
+                          const provider = new VolcengineTtsProvider({
+                              apiKey: ttsApiKey
+                          });
+                          await provider.synthesizeSpeech({
+                              outputPath: input.audioFilePath,
+                              text: input.narration,
+                              voice: input.voiceId
+                          });
+                          const { readFile } = await import('node:fs/promises');
+                          const audioBytes = await readFile(
+                              input.audioFilePath
+                          );
+                          const durationMs = 4000; // 与 scene 默认 3-5s 对齐
+                          const wordTimestamps = estimateWordTimestamps(
+                              input.narration,
+                              durationMs
+                          );
+                          await writeTtsCache({
+                              audioBytes,
+                              durationMs,
+                              narration: input.narration,
+                              voiceId: input.voiceId,
+                              wordTimestamps
+                          });
+                          return { wordTimestamps };
+                      }
+                    : async () => {
+                          throw new Error('demo: writeMp3 not impl');
+                      },
                 writeProject: async (input: {
                     outputDir: string;
                     projectId: string;
