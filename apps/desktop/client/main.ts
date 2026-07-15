@@ -7,13 +7,23 @@ import { app, BrowserWindow, ipcMain } from 'electron';
 // commit 20.1:把仓库根 .env / .env.local 装到 process.env(main 进程能看到
 // ARK_API_KEY / VOLCENGINE_TTS_API_KEY 等)。dotenv 不会覆盖已存在的 env var,
 // 只有 process.env 没这个 key 时才装。__dirname 在 vite build 后是
-// apps/desktop/.vite/build/,向上 3 层是仓库根。
+// apps/desktop/.vite/build/,向上 4 层才是仓库根(monorepo)。
 const loadEnvFrom = (rel: string): void => {
-    loadEnv({ path: join(__dirname, '..', '..', '..', rel) });
+    loadEnv({ path: join(__dirname, '..', '..', '..', '..', rel) });
 };
-loadEnvFrom('.env'); // 仓库根,.gitignore 不 ignore 也能读
-loadEnvFrom('.env.local'); // 仓库根,.gitignore ignore,但允许存在
-loadEnv({ path: join(__dirname, '..', '..', '.env.local') }); // apps/desktop/
+loadEnvFrom('.env'); // 仓库根,gitignore 不 ignore
+loadEnvFrom('.env.local'); // 仓库根,gitignore ignore 但允许存在
+loadEnv({ path: join(__dirname, '..', '..', '.env.local') }); // apps/desktop
+
+// commit 20.2:诊断 — dotenv 在 macOS GUI 启动 cwd 有时会变,确认装入。
+// eslint-disable-next-line no-console
+console.log('[main] env loaded', {
+    API_KEY: Boolean(process.env['API_KEY']),
+    ARK_API_KEY: Boolean(process.env['ARK_API_KEY']),
+    BASE_URL: Boolean(process.env['BASE_URL']),
+    VOLCENGINE_TTS_API_KEY: Boolean(process.env['VOLCENGINE_TTS_API_KEY']),
+    VOLCENGINE_TTS_APP_ID: Boolean(process.env['VOLCENGINE_TTS_APP_ID'])
+});
 
 import { IPC } from '../shared/ipc';
 import { createExportPipeline } from './export-pipeline';
