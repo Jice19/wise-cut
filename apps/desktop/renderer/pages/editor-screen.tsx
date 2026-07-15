@@ -1,20 +1,23 @@
 /**
- * Editor screen —— commit 9.2 重写为消费真实 VideoProject。
+ * Editor screen —— commit 17 升级。
  *
- * 数据流:
- *   URL /editor/:projectId → useParams 拿 projectId
- *   → useEffect 调 miaomaAPI.readVideoProject({projectId})
- *   → 拿 VideoProject(commit 7 schema) → 渲染 timeline + 分镜列表 + 元信息
+ * 4 个主要 section:
+ *   1. 帧分析面板(commit 15) — 整体理解 + 时间窗摘要
+ *   2. 分镜列表(左侧) — 选中 → 详情显示
+ *   3. 时间线(主区) — 视频轨 + 配音轨,横向 block 可拖(改 startMs)
+ *   4. 字幕轨道(主区底) — 显示 SRT 文本,inline 编辑(改 narration)
  *
- * 不做 frame-level trim/splice(留 Phase 5)。
+ * 拖拽策略:用 mousedown/mousemove/mouseup,不引第三方库。
+ * 修改只更新 local state,不入盘(commit 16 导出时再应用变更)。
  */
 
 import type {
-    Scene,
+    KeyFrameWindowAnalysis,
     TimelineClip,
+    VideoAnalysisResult,
     VideoProject
 } from '@miaoma-magicut/video-project';
-import { useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 
 import { AppShell } from '@/components/app-shell';
@@ -35,12 +38,53 @@ const formatDate = (iso: string): string => {
     }
 };
 
-const findSceneByClip = (
-    scenes: Scene[],
-    clip: TimelineClip
-): Scene | undefined => scenes.find((s) => s.sceneId === clip.assetId);
-
 const TIMELINE_WIDTH_PX = 800;
+
+type DerivedScene = {
+    endMs: number;
+    index: number;
+    narration: string;
+    startMs: number;
+    subtitleText: string;
+    voiceClip?: TimelineClip;
+};
+
+const extractAnalysisResult = (
+    project: VideoProject
+): VideoAnalysisResult | null => {
+    for (const msg of project.agentConversation) {
+        for (const block of msg.blocks) {
+            if (block.kind === 'analysis') {
+                return block.analysis;
+            }
+        }
+    }
+    return null;
+};
+
+const buildDerivedScenes = (project: VideoProject): DerivedScene[] => {
+    const videoTrack = project.tracks.find((t) => t.kind === 'video');
+    const voiceTrack = project.tracks.find((t) => t.kind === 'voice');
+    return (videoTrack?.clips ?? []).map((clip, idx) => {
+        const voiceClip = voiceTrack?.clips.find((c) => {
+            // voice clip assetId 对应 sceneId(assembleTimelineNode 用 sceneId 作为 voice assetId)
+            return (
+                c.assetId === clip.assetId || c.assetId.endsWith(`-${idx + 1}`)
+            );
+        });
+        return {
+            endMs: clip.endMs,
+            index: idx,
+            narration: voiceClip ? '' : '', // commit 17 不从 voice 拿 narration,UI 改
+            startMs: clip.startMs,
+            subtitleText: voiceClip ? '' : '',
+            voiceClip
+        };
+    });
+};
+
+const pxPerMs = (durationMs: number): number =>
+    Math.max(TIMELINE_WIDTH_PX / Math.max(durationMs, 1), 0.001);
 
 export const EditorScreen = (): JSX.Element => {
     const params = useParams<{ projectId?: string }>();
@@ -49,6 +93,8 @@ export const EditorScreen = (): JSX.Element => {
     const [project, setProject] = useState<VideoProject | null>(null);
     const [loadError, setLoadError] = useState<string | null>(null);
     const [selectedSceneIndex, setSelectedSceneIndex] = useState(0);
+    const [scenes, setScenes] = useState<DerivedScene[]>([]);
+    const [subtitleDraft, setSubtitleDraft] = useState('');
 
     useEffect(() => {
         let cancelled = false;
@@ -57,15 +103,91 @@ export const EditorScreen = (): JSX.Element => {
         window.miaomaAPI
             .readVideoProject({ projectId })
             .then((result) => {
-                if (!cancelled) setProject(result as VideoProject);
+                if (cancelled) return;
+                const p = result as VideoProject;
+                setProject(p);
+                setScenes(buildDerivedScenes(p));
             })
             .catch((err: Error) => {
-                if (!cancelled) setLoadError(err.message);
+                if (cancelled) return;
+                setLoadError(err.message);
             });
         return () => {
             cancelled = true;
         };
     }, [projectId]);
+
+    // commit 17 拖拽：mousedown 在 block 上记录 startMs, mousemove 计算 delta, mouseup commit
+    const dragRef = useRef<{
+        clipIndex: number;
+        startX: number;
+        originalStartMs: number;
+    } | null>(null);
+
+    const onClipMouseDown = (
+        e: React.MouseEvent<HTMLDivElement>,
+        clipIndex: number,
+        originalStartMs: number
+    ): void => {
+        e.preventDefault();
+        dragRef.current = {
+            clipIndex,
+            originalStartMs,
+            startX: e.clientX
+        };
+        const onMove = (ev: MouseEvent): void => {
+            const drag = dragRef.current;
+            if (!drag || !project) return;
+            const ratio = pxPerMs(project.canvas.durationMs);
+            const deltaMs = (ev.clientX - drag.startX) / ratio;
+            const newStart = Math.max(
+                0,
+                Math.round(drag.originalStartMs + deltaMs)
+            );
+            setScenes((prev) => {
+                const next = [...prev];
+                const cur = next[drag.clipIndex];
+                if (!cur) return prev;
+                // 不能超过前一个 scene 的 endMs
+                const prevScene = next[drag.clipIndex - 1];
+                const maxStart = prevScene ? prevScene.endMs : Infinity;
+                const clamped = Math.min(newStart, maxStart);
+                const delta = clamped - cur.startMs;
+                next[drag.clipIndex] = {
+                    ...cur,
+                    endMs: cur.endMs + delta,
+                    startMs: clamped
+                };
+                return next;
+            });
+        };
+        const onUp = (): void => {
+            dragRef.current = null;
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+        };
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+    };
+
+    // commit 17 inline 字幕编辑：选 scene → 在详情面板编辑字幕(暂存 local)
+    const onSelectScene = (idx: number): void => {
+        setSelectedSceneIndex(idx);
+        setSubtitleDraft(scenes[idx]?.subtitleText ?? '');
+    };
+    const onSaveSubtitle = (): void => {
+        setScenes((prev) => {
+            const next = [...prev];
+            const cur = next[selectedSceneIndex];
+            if (cur) {
+                next[selectedSceneIndex] = {
+                    ...cur,
+                    subtitleText: subtitleDraft
+                };
+            }
+            return next;
+        });
+    };
 
     if (loadError) {
         return (
@@ -95,47 +217,36 @@ export const EditorScreen = (): JSX.Element => {
     }
 
     const totalDurationMs = project.canvas.durationMs;
-    // commit 9.2 阶段 scenes 存在 AiRunMetadata.metadata,ProjectMetadata 不含
-    // 这里用 tracks 推算分镜列表(每个 video clip = 1 个分镜)
-    const scenes: Scene[] = [];
-    const videoTrack = project.tracks.find((t) => t.kind === 'video');
-    const voiceTrack = project.tracks.find((t) => t.kind === 'voice');
-    const derivedScenes = (videoTrack?.clips ?? []).map((clip, idx) => {
-        const matched = findSceneByClip(scenes, clip);
-        return {
-            clip,
-            endMs: clip.endMs,
-            index: idx,
-            matched,
-            startMs: clip.startMs
-        };
-    });
-    const selected = derivedScenes[selectedSceneIndex];
+    const selected = scenes[selectedSceneIndex];
+    const analysisResult = extractAnalysisResult(project);
 
     return (
         <AppShell pageLabel={`编辑器 · ${project.metadata.title}`}>
             <div className="flex h-full gap-2 overflow-hidden p-2">
-                {/* 左侧:分镜列表 */}
+                {/* 左侧:分镜列表 + 帧分析 */}
                 <aside className="flex w-[320px] flex-shrink-0 flex-col gap-3 overflow-y-auto rounded-lg border border-border-subtle bg-bg-elevated p-4">
+                    {/* 帧分析面板(commit 15) */}
+                    {analysisResult && (
+                        <AnalysisPanel analysis={analysisResult} />
+                    )}
+
                     <header>
-                        <h2 className="text-sm font-semibold text-text-primary">
+                        <h2 className="mb-1 text-sm font-semibold text-text-primary">
                             分镜列表
                         </h2>
-                        <p className="mt-1 text-xs text-text-tertiary">
-                            {derivedScenes.length} 个分镜 ·{' '}
+                        <p className="text-[11px] text-text-tertiary">
+                            {scenes.length} 个分镜 ·{' '}
                             {formatTime(totalDurationMs)} 总时长
                         </p>
                     </header>
                     <ol className="flex flex-col gap-2">
-                        {derivedScenes.map((s) => {
+                        {scenes.map((s) => {
                             const active = s.index === selectedSceneIndex;
                             return (
                                 <li key={s.index}>
                                     <button
                                         type="button"
-                                        onClick={() =>
-                                            setSelectedSceneIndex(s.index)
-                                        }
+                                        onClick={() => onSelectScene(s.index)}
                                         className={[
                                             'flex w-full flex-col gap-1 rounded-md border p-3 text-left text-xs transition',
                                             active
@@ -152,15 +263,6 @@ export const EditorScreen = (): JSX.Element => {
                                                 {formatTime(s.endMs)}
                                             </span>
                                         </div>
-                                        {s.matched?.narration ? (
-                                            <p className="line-clamp-2 text-text-primary">
-                                                {s.matched.narration}
-                                            </p>
-                                        ) : (
-                                            <p className="text-text-tertiary">
-                                                素材:{s.clip.assetId}
-                                            </p>
-                                        )}
                                     </button>
                                 </li>
                             );
@@ -168,9 +270,9 @@ export const EditorScreen = (): JSX.Element => {
                     </ol>
                 </aside>
 
-                {/* 主区:预览 + 时间线 */}
+                {/* 主区:预览 + 时间线 + 字幕 */}
                 <div className="flex min-w-0 flex-1 flex-col gap-2">
-                    {/* 预览区 */}
+                    {/* 预览 */}
                     <div className="flex aspect-video items-center justify-center overflow-hidden rounded-lg border border-border-subtle bg-bg-base">
                         {selected ? (
                             <div className="flex flex-col items-center gap-3 p-6 text-center">
@@ -178,14 +280,9 @@ export const EditorScreen = (): JSX.Element => {
                                     分镜 {selected.index + 1}
                                 </div>
                                 <p className="max-w-md text-sm text-text-secondary">
-                                    {selected.matched?.narration ??
-                                        `素材 ${selected.clip.assetId}`}
+                                    {selected.subtitleText ||
+                                        '(无字幕,可在下方编辑)'}
                                 </p>
-                                {selected.matched?.visualBrief && (
-                                    <p className="max-w-md text-xs italic text-text-tertiary">
-                                        画面:{selected.matched.visualBrief}
-                                    </p>
-                                )}
                                 <p className="text-xs text-text-tertiary">
                                     {formatTime(selected.startMs)} -{' '}
                                     {formatTime(selected.endMs)}
@@ -196,51 +293,83 @@ export const EditorScreen = (): JSX.Element => {
                         )}
                     </div>
 
-                    {/* 时间线 */}
+                    {/* 时间线 + 字幕轨 */}
                     <div className="rounded-lg border border-border-subtle bg-bg-elevated p-4">
                         <div className="mb-2 flex items-center justify-between text-xs text-text-secondary">
                             <span>时间线</span>
                             <span>
-                                {videoTrack?.clips.length ?? 0} 视频 ·{' '}
-                                {voiceTrack?.clips.length ?? 0} 配音
+                                视频 {scenes.length} 段 · 配音{' '}
+                                {scenes.filter((s) => s.voiceClip).length}
                             </span>
                         </div>
                         <div
                             className="relative h-20 overflow-hidden rounded bg-bg-sunken"
                             style={{ width: TIMELINE_WIDTH_PX }}
                         >
-                            {derivedScenes.map((s) => {
+                            {scenes.map((s) => {
                                 const left =
-                                    (s.startMs / totalDurationMs) *
-                                    TIMELINE_WIDTH_PX;
+                                    s.startMs * pxPerMs(totalDurationMs);
                                 const width =
-                                    ((s.endMs - s.startMs) / totalDurationMs) *
-                                    TIMELINE_WIDTH_PX;
+                                    (s.endMs - s.startMs) *
+                                    pxPerMs(totalDurationMs);
                                 return (
                                     <div
                                         key={`v-${s.index}`}
+                                        onMouseDown={(e) =>
+                                            onClipMouseDown(
+                                                e,
+                                                s.index,
+                                                s.startMs
+                                            )
+                                        }
                                         className={[
-                                            'absolute top-1 h-7 rounded border-2 px-2 text-[10px] flex items-center overflow-hidden',
+                                            'absolute top-1 flex h-7 cursor-grab items-center overflow-hidden rounded border-2 px-2 text-[10px] active:cursor-grabbing',
                                             s.index === selectedSceneIndex
                                                 ? 'border-brand bg-brand text-text-on-brand'
                                                 : 'border-border-subtle bg-bg-hover text-text-secondary'
                                         ].join(' ')}
                                         style={{ left, width }}
-                                        onClick={() =>
-                                            setSelectedSceneIndex(s.index)
-                                        }
                                     >
                                         分镜 {s.index + 1}
                                     </div>
                                 );
                             })}
-                            {/* voice track bar */}
+                            {/* 配音轨:voice block 提示 */}
                             <div className="absolute bottom-1 h-3 w-full rounded bg-success opacity-60" />
+                        </div>
+
+                        {/* 字幕编辑(commit 17) */}
+                        <div className="mt-3 border-t border-border-subtle pt-3">
+                            <label
+                                htmlFor="subtitle-edit"
+                                className="mb-1 block text-[11px] font-semibold text-text-secondary"
+                            >
+                                字幕 (分镜 {selectedSceneIndex + 1})
+                            </label>
+                            <textarea
+                                id="subtitle-edit"
+                                rows={2}
+                                value={subtitleDraft}
+                                onChange={(e) =>
+                                    setSubtitleDraft(e.target.value)
+                                }
+                                placeholder="输入字幕文本..."
+                                className="w-full resize-none rounded border border-border-subtle bg-bg-sunken px-2 py-1.5 text-xs text-text-primary placeholder:text-text-tertiary focus:border-brand focus:outline-none"
+                            />
+                            <div className="mt-2 flex justify-end">
+                                <button
+                                    type="button"
+                                    onClick={onSaveSubtitle}
+                                    className="rounded bg-brand px-3 py-1 text-[11px] font-semibold text-text-on-brand hover:bg-brand-dim"
+                                >
+                                    保存字幕
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                {/* 右侧:元信息 + 操作 */}
+                {/* 右侧:项目元信息 */}
                 <aside className="flex w-[280px] flex-shrink-0 flex-col gap-3 rounded-lg border border-border-subtle bg-bg-elevated p-4">
                     <h2 className="text-sm font-semibold text-text-primary">
                         项目信息
@@ -277,24 +406,62 @@ export const EditorScreen = (): JSX.Element => {
                                 {formatDate(project.metadata.createdAt)}
                             </dd>
                         </div>
-                        <div>
-                            <dt className="text-text-tertiary">视频素材</dt>
-                            <dd className="text-text-secondary">
-                                {project.assets.videos.length} 个
-                            </dd>
-                        </div>
-                        <div>
-                            <dt className="text-text-tertiary">配音素材</dt>
-                            <dd className="text-text-secondary">
-                                {project.assets.voices.length} 个
-                            </dd>
-                        </div>
                     </dl>
-                    <div className="mt-auto rounded-md border border-border-subtle bg-bg-base p-3 text-center text-xs text-text-tertiary">
-                        编辑功能(裁剪/拼接)留 Phase 5
-                    </div>
                 </aside>
             </div>
         </AppShell>
+    );
+};
+
+/**
+ * commit 15 帧分析面板 — 整体理解 + 时间窗摘要。
+ */
+const AnalysisPanel = ({
+    analysis
+}: {
+    analysis: VideoAnalysisResult;
+}): ReactNode => {
+    const [expandedWindow, setExpandedWindow] = useState<number | null>(null);
+    return (
+        <section className="rounded border border-border-subtle bg-bg-base p-3">
+            <h3 className="mb-1 text-[11px] font-bold uppercase tracking-wide text-text-tertiary">
+                帧分析
+            </h3>
+            <p className="text-[11px] text-text-secondary">
+                {analysis.summary}
+            </p>
+            <p className="mt-2 line-clamp-3 text-[11px] italic text-text-tertiary">
+                {analysis.overallUnderstanding}
+            </p>
+            <div className="mt-2 space-y-1">
+                {analysis.keyFrameAnalysis.map((w: KeyFrameWindowAnalysis) => (
+                    <button
+                        type="button"
+                        key={w.windowIndex}
+                        onClick={() =>
+                            setExpandedWindow(
+                                expandedWindow === w.windowIndex
+                                    ? null
+                                    : w.windowIndex
+                            )
+                        }
+                        className="flex w-full flex-col items-start rounded border border-border-subtle bg-bg-elevated p-1.5 text-left text-[10px] hover:border-brand"
+                    >
+                        <span className="font-mono text-text-tertiary">
+                            {formatTime(w.windowStart)} -{' '}
+                            {formatTime(w.windowEnd)} · {w.frameIds.length} 帧
+                        </span>
+                        <span className="line-clamp-2 text-text-secondary">
+                            {w.summary}
+                        </span>
+                        {expandedWindow === w.windowIndex && (
+                            <span className="mt-1 text-[9px] text-text-tertiary">
+                                帧:{w.frameIds.join(', ')}
+                            </span>
+                        )}
+                    </button>
+                ))}
+            </div>
+        </section>
     );
 };
