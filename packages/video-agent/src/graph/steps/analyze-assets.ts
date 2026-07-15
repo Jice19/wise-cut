@@ -178,7 +178,10 @@ export const analyzeAssets = async (
             );
         } catch (error) {
             // 区分业务错:NoVideoStreamError / ExtractKeyframesError / ProbeMediaError
-            // 全部降级处理,不打断流水线
+            // 全部降级处理,不打断流水线。commit 23:unknown 类别里嵌 error.message
+            // 便于诊断(不打印 stack 防 log 噪声)。
+            const unknownMsg =
+                error instanceof Error ? error.message.slice(0, 80) : '';
             const reason =
                 error instanceof NoVideoStreamError
                     ? 'audio-only file'
@@ -186,7 +189,7 @@ export const analyzeAssets = async (
                       ? 'extract failed'
                       : error instanceof ProbeMediaError
                         ? 'probe failed'
-                        : 'unknown error';
+                        : `unknown error: ${unknownMsg}`;
 
             // 仅在开发环境 console.error 一次,生产静默
             // eslint-disable-next-line no-console

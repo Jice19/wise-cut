@@ -157,6 +157,8 @@ export const createDemoVideoAgentController = (options: {
             // 改动不自动触发 apps/desktop main bundle 重建,这里动一行触发)
             // commit 22:workspace 包内 llm-json.ts 改动触发 vite rebuild main
             // bundle,plan_scenes 节点走增强后的 extractJsonFromLlmResponse。
+            // commit 23:workspace analyze-assets 改动触发 vite rebuild main
+            // bundle,analyze_assets 节点改进 degrade 错误信息显示。
             const { mkdir, writeFile, copyFile } = await import(
                 'node:fs/promises'
             );
