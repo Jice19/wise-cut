@@ -4,6 +4,7 @@ impact: MEDIUM
 impactDescription: cleaner component definitions and context usage
 tags: react19, refs, context, hooks
 ---
+- All rights reserved.
 
 ## React 19 API Changes
 

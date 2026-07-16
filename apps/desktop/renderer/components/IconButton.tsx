@@ -1,6 +1,7 @@
-/* */
+
 import type { EditorIconName } from '../types/editor-screen';
 import { cx } from '../utils/classNames';
+
 import { Icon } from './Icon';
 
 type IconButtonVariant =
@@ -12,11 +13,11 @@ type IconButtonVariant =
 
 const variantClassNames: Record<IconButtonVariant, string> = {
     default:
-        'border-[#E7E5E0] bg-[#F1EFEC] text-[#57534E] hover:border-[#E7E5E0] hover:text-white',
-    accent: 'border-[#E7E5E0] bg-[#D97706] text-white',
-    history: 'border-[#E7E5E0] bg-[#F1EFEC] text-[#57534E]',
-    timeline: 'border-[#E7E5E0] bg-[#F1EFEC] text-[#57534E]',
-    timelineActive: 'border-[#E7E5E0] bg-[#F1EFEC] text-white'
+        'border-[#2A2F38] bg-[#1D2026] text-[#A9AFBA] hover:border-[#F05F73] hover:text-white',
+    accent: 'border-[#F05F73] bg-[#F05F73] text-white',
+    history: 'border-[#2A2F38] bg-[#1A1D22] text-[#A9AFBA]',
+    timeline: 'border-[#2A2F38] bg-[#1D2026] text-[#A9AFBA]',
+    timelineActive: 'border-[#2A2F38] bg-[#1D2026] text-white'
 };
 
 export const IconButton = ({

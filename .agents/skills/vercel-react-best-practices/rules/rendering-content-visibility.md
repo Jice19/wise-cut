@@ -4,6 +4,7 @@ impact: HIGH
 impactDescription: faster initial render
 tags: rendering, css, content-visibility, long-lists
 ---
+- All rights reserved.
 
 ## CSS content-visibility for Long Lists
 

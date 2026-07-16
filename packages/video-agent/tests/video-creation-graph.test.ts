@@ -1,443 +1,355 @@
-/**
- * LangGraph 10 节点流水线端到端测试 —— commit 6 聚焦版本。
- *
- * 只跑通 scan_assets → analyze_assets 这 2 个节点,断言:
- *   - emit 序列包含 run.started / node.started / node.completed / run.completed
- *   - state.assets 被填充,包含真实 width/height/durationMs/frames
- *   - 每个 asset.frames[].description 是非空中文(M3 multimodal 输出)
- *
- * 跑这条测试需要本机有 ffmpeg/ffprobe + 有效的 ARK_API_KEY(env)。
- * 缺一就 skip。
- */
+/* */
+import { describe, expect, it } from 'vitest';
 
-import { execFile } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { promisify } from 'node:util';
-
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-
-import { createFsVideoAgentTools } from '../src/graph/steps/analyze-assets.ts';
 import {
-    type AgentRunEvent,
-    createSequencedEventEmitter,
-    createVideoCreationCheckpointer,
+    sampleVideoProject,
+    validateVideoProject,
+    type VideoProject
+} from '@wise-cut/video-project';
+
+import type { AgentRunEvent } from '../src/events/agent-run-event';
+import {
     createVideoCreationGraph,
-    type ModelProvider
-} from '../src/index.ts';
+    type VideoAgentTools
+} from '../src/graph/create-video-creation-graph';
+import type {
+    AssetAnalysis,
+    AssetMatchResult,
+    VoiceSynthesisResult
+} from '../src/tools/video-agent-tools';
 
-const execFileAsync = promisify(execFile);
+const runInput = {
+    prompt: '生成一条智剪产品介绍短片',
+    runId: 'run-test-001',
+    sourceAssetDirectory: '/Users/heyi/Movies/MiaoMa素材/demo/raw'
+};
 
-const hasFfmpeg = await (async () => {
-    try {
-        await execFileAsync('ffmpeg', ['-version']);
-        return true;
-    } catch {
-        return false;
+const brief = {
+    audience: '短视频创作者',
+    keyMessages: ['智能分镜', '素材匹配', '自动配音'],
+    summary: '智剪产品介绍短片',
+    title: '智剪智能剪辑',
+    tone: '专业轻快',
+    visualStyle: '明亮科技感'
+};
+
+const scenes = [
+    {
+        durationMs: 3000,
+        goal: '展示产品开场',
+        id: 'scene-001',
+        index: 1,
+        script: '智剪让视频创作更快',
+        subtitleLines: ['智剪让视频创作更快'],
+        title: '开场',
+        visualIntent: '产品界面和时间线'
     }
-})();
+];
 
-const apiKey = process.env['ARK_API_KEY'] ?? '';
-const hasApiKey = apiKey.length > 0;
-
-describe.skipIf(!hasFfmpeg || !hasApiKey)(
-    'LangGraph video-creation pipeline (commit 6 聚焦)',
-    () => {
-        let workDir: string;
-        let videoDir: string;
-        let frameDir: string;
-        const collected: AgentRunEvent[] = [];
-
-        beforeAll(async () => {
-            workDir = await mkdtemp(join(tmpdir(), 'graph-test-'));
-            videoDir = join(workDir, 'videos');
-            frameDir = join(workDir, 'frames');
-            const { mkdir } = await import('node:fs/promises');
-            await mkdir(videoDir, { recursive: true });
-            await mkdir(frameDir, { recursive: true });
-
-            // 1 段 5s 720p mp4
-            const videoPath = join(videoDir, 'sample.mp4');
-            await execFileAsync('ffmpeg', [
-                '-y',
-                '-f',
-                'lavfi',
-                '-i',
-                'testsrc=size=1280x720:rate=30:duration=5',
-                '-pix_fmt',
-                'yuv420p',
-                '-c:v',
-                'libx264',
-                videoPath
-            ]);
-        }, 60_000);
-
-        afterAll(async () => {
-            await rm(workDir, { recursive: true, force: true });
-        });
-
-        it('scan + analyze 跑通,真实元数据 + 帧描述写入 state.assets', async () => {
-            const { MinimaxM3ModelProvider } = await import(
-                '../src/providers/m3-chat-model-provider.ts'
-            );
-
-            const modelProvider: ModelProvider = new MinimaxM3ModelProvider({
-                apiKey
-            });
-            const tools = createFsVideoAgentTools();
-
-            const checkpointer = createVideoCreationCheckpointer();
-            const emit = createSequencedEventEmitter({
-                runId: 'r-graph-1',
-                sink: (evt) => collected.push(evt)
-            });
-
-            const { setModelProvider } = await import('../src/graph/nodes.ts');
-            setModelProvider(modelProvider);
-
-            const runner = createVideoCreationGraph({
-                checkpointer,
-                emit: (evt) => collected.push(evt),
-                tools
-            });
-
-            // runner.start 跑完整 graph,在 scene_approval 抛 interrupt
-            // (因为没有用户批准,scene_approval node 内调 interrupt() 抛 GraphInterrupt
-            // → 走 failRun 路径,status='failed')。但事件流里 scan_assets +
-            // analyze_assets 都已 node.completed,LLM 帧描述已落 state.assets
-            // (result.state)。
-            const result = await runner.start({
-                brief: 'AI 剪辑演示',
-                runId: 'r-graph-1',
-                sourceAssetDirectory: videoDir
-            });
-
-            // 事件序列断言:scan + analyze + 后续 LLM 节点都会 started/completed
-            const types = collected.map((e) => e.type);
-            expect(types).toContain('node.started');
-            expect(
-                types.filter((t) => t === 'node.completed').length
-            ).toBeGreaterThanOrEqual(2);
-
-            // state.assets 真元数据(从 result.state 拿)
-            const assets = (
-                result.state as unknown as {
-                    assets: {
-                        assetId: string;
-                        description: string;
-                        durationMs: number;
-                        fps: number;
-                        frames: {
-                            description: string;
-                            frameId: string;
-                            timestampMs: number;
-                        }[];
-                        height: number;
-                        width: number;
-                    }[];
-                }
-            )?.assets;
-            expect(assets?.length).toBe(1);
-            const asset = assets![0]!;
-            expect(asset.width).toBe(1280);
-            expect(asset.height).toBe(720);
-            expect(asset.durationMs).toBeGreaterThan(4000);
-            expect(asset.fps).toBeGreaterThan(0);
-            expect(asset.frames.length).toBeGreaterThan(0);
-
-            // 帧描述非空(LLM 真返回)
-            const firstFrame = asset.frames[0]!;
-            expect(firstFrame.description.length).toBeGreaterThan(0);
-            expect(firstFrame.timestampMs).toBeGreaterThanOrEqual(0);
-        }, 120_000);
+const assets: AssetAnalysis[] = [
+    {
+        assetId: 'video-001',
+        description: '产品界面录屏',
+        durationMs: 3000
     }
-);
+];
 
-describe.skipIf(!hasFfmpeg)(
-    'LangGraph pipeline — 仅无 LLM 时的降级路径',
-    () => {
-        let workDir: string;
-
-        beforeAll(async () => {
-            workDir = await mkdtemp(join(tmpdir(), 'graph-no-llm-'));
-            const videoDir = join(workDir, 'videos');
-            const { mkdir } = await import('node:fs/promises');
-            await mkdir(videoDir, { recursive: true });
-
-            await execFileAsync('ffmpeg', [
-                '-y',
-                '-f',
-                'lavfi',
-                '-i',
-                'testsrc=size=640x480:rate=30:duration=3',
-                '-pix_fmt',
-                'yuv420p',
-                '-c:v',
-                'libx264',
-                join(videoDir, 'sample.mp4')
-            ]);
-        });
-
-        afterAll(async () => {
-            await rm(workDir, { recursive: true, force: true });
-        });
-
-        it('无 LLM key 时 analyzeAssets 降级 —— frames 空但 pipeline 不抛错', async () => {
-            const failingProvider = {
-                describeFrames: async () => {
-                    throw new Error('no LLM key');
-                },
-                generateText: async () => {
-                    throw new Error('no LLM key');
-                }
-            } as unknown as ModelProvider;
-
-            const tools = createFsVideoAgentTools();
-            const checkpointer = createVideoCreationCheckpointer();
-
-            const collected: AgentRunEvent[] = [];
-            const emit = createSequencedEventEmitter({
-                runId: 'r-no-llm',
-                sink: (evt) => collected.push(evt)
-            });
-
-            const { setModelProvider } = await import('../src/graph/nodes.ts');
-            setModelProvider(failingProvider);
-
-            const graph = createVideoCreationGraph({
-                checkpointer,
-                emit: (evt) => collected.push(evt),
-                tools
-            });
-
-            const result = await graph.start({
-                brief: '降级测试',
-                runId: 'r-no-llm',
-                sourceAssetDirectory: join(workDir, 'videos')
-            });
-
-            // runner.start 在 __interrupt__ 处返回 waiting_for_approval
-            // 拿 result.state 看 state.assets
-            expect(result.status).toBe('waiting_for_approval');
-            const assets = (
-                result.state as unknown as {
-                    assets: {
-                        frames: unknown[];
-                        width: number;
-                        height: number;
-                    }[];
-                }
-            )?.assets;
-            expect(assets?.length).toBe(1);
-            // 降级:describeFrames 抛错时 frames 为 [],
-            // width/height 由 probeMedia 在降级前已经填充所以是 0
-            // (因为 analyzeAssets catch 整体走 degraded 分支)
-            expect(assets![0]!.frames).toEqual([]);
-
-            // 不应触发 node.failed 事件,因为 analyzeAssets 内置降级路径
-            expect(collected.some((e) => e.type === 'node.failed')).toBe(false);
-        }, 60_000);
-    }
-);
-
-/**
- * commit 6.5 阶段补:完整 10 节点流水线降级路径(LLM 全抛错)
- * — 走 creative_brief / plan_scenes / match_assets 三个 LLM 节点的内置
- * 降级 fallback,最终 assemble + save 节点写出 VideoProject。
- *
- * 跳过条件:无 ffmpeg 时整文件 skip(scene_approval 用 Command resume,
- * vitest 单测里调 interrupt() 较复杂,留 commit 6.5 后续 commit 6.5.1)。
- */
-import { Command as CommandImport } from '@langchain/langgraph';
-
-describe.skipIf(!hasFfmpeg)('LangGraph pipeline — 完整 10 节点降级路径', () => {
-    let workDir: string;
-
-    beforeAll(async () => {
-        workDir = await mkdtemp(join(tmpdir(), 'graph-full-'));
-        const videoDir = join(workDir, 'videos');
-        const { mkdir } = await import('node:fs/promises');
-        await mkdir(videoDir, { recursive: true });
-
-        await execFileAsync('ffmpeg', [
-            '-y',
-            '-f',
-            'lavfi',
-            '-i',
-            'testsrc=size=320x240:rate=15:duration=2',
-            '-pix_fmt',
-            'yuv420p',
-            '-c:v',
-            'libx264',
-            join(videoDir, 'sample.mp4')
-        ]);
-    });
-
-    afterAll(async () => {
-        await rm(workDir, { recursive: true, force: true });
-    });
-
-    it('LLM 全失败仍跑完 10 节点并落盘 VideoProject', async () => {
-        const failingProvider = {
-            describeFrames: async () => {
-                throw new Error('no LLM key');
-            },
-            generateText: async () => {
-                throw new Error('no LLM key');
+const matches: AssetMatchResult[] = [
+    {
+        rankedAssetIds: [
+            {
+                assetId: 'video-001',
+                reason: '与产品界面分镜匹配',
+                score: 0.96
             }
-        } as unknown as ModelProvider;
-
-        const tools = createFsVideoAgentTools();
-        const checkpointer = createVideoCreationCheckpointer();
-
-        const collected: AgentRunEvent[] = [];
-        const emit = createSequencedEventEmitter({
-            runId: 'r-full',
-            sink: (evt) => collected.push(evt)
-        });
-
-        const { setModelProvider } = await import('../src/graph/nodes.ts');
-        setModelProvider(failingProvider);
-
-        const runner = createVideoCreationGraph({
-            checkpointer,
-            emit: (evt) => collected.push(evt),
-            tools
-        });
-
-        // runner.start 在 __interrupt__ 处返回 waiting_for_approval
-        const firstResult = await runner.start({
-            brief: '降级测试',
-            runId: 'r-full',
-            sourceAssetDirectory: join(workDir, 'videos')
-        });
-        expect(firstResult.status).toBe('waiting_for_approval');
-        expect(firstResult.approval).toBeDefined();
-        expect(collected.some((e) => e.type === 'approval.required')).toBe(
-            true
-        );
-
-        // resume({ approved: true }) 继续到 match_assets + 后续节点
-        const collectedAfter = collected.length;
-        const secondResult = await runner.resume({
-            approval: { approved: true },
-            runId: 'r-full'
-        });
-
-        const newTypes = collected.slice(collectedAfter).map((e) => e.type);
-        // match_assets 节点应该 started
-        expect(newTypes).toContain('node.started');
-        expect(
-            newTypes.filter((t) => t === 'node.completed').length
-        ).toBeGreaterThan(0);
-
-        // 终态:completed(因为 match_assets fallback + save_project stub 能跑通)
-        expect(['completed', 'failed']).toContain(secondResult.status);
-    }, 90_000);
-});
-
-/**
- * commit 12 — scene_approval 驳回时 conditional edge 回 plan_scenes。
- *
- * 流程:
- *   start → 跑到 scene_approval (waiting_for_approval)
- *   resume({ approved: false, feedback: '把第三段缩短' }) → 跳回 plan_scenes
- *   resume({ approved: true }) → 走完
- */
-describe.skipIf(!hasFfmpeg)(
-    'commit 12 — scene_approval 驳回走回 plan_scenes',
-    () => {
-        let workDir: string;
-
-        beforeAll(async () => {
-            workDir = await mkdtemp(join(tmpdir(), 'graph-feedback-'));
-            const videoDir = join(workDir, 'videos');
-            const { mkdir } = await import('node:fs/promises');
-            await mkdir(videoDir, { recursive: true });
-
-            await execFileAsync('ffmpeg', [
-                '-y',
-                '-f',
-                'lavfi',
-                '-i',
-                'testsrc=size=320x240:rate=15:duration=2',
-                '-pix_fmt',
-                'yuv420p',
-                '-c:v',
-                'libx264',
-                join(videoDir, 'sample.mp4')
-            ]);
-        });
-
-        afterAll(async () => {
-            await rm(workDir, { recursive: true, force: true });
-        });
-
-        it('驳回时 feedback 写入 state + conditional edge 回 plan_scenes', async () => {
-            const failingProvider = {
-                describeFrames: async () => {
-                    throw new Error('no LLM key');
-                },
-                generateText: async () => {
-                    throw new Error('no LLM key');
-                }
-            } as unknown as ModelProvider;
-
-            const tools = createFsVideoAgentTools();
-            const checkpointer = createVideoCreationCheckpointer();
-
-            const collected: AgentRunEvent[] = [];
-            const { setModelProvider } = await import('../src/graph/nodes.ts');
-            setModelProvider(failingProvider);
-
-            const runner = createVideoCreationGraph({
-                checkpointer,
-                emit: (evt) => collected.push(evt),
-                tools
-            });
-
-            // 1. start 跑到 scene_approval
-            const first = await runner.start({
-                brief: '驳回测试',
-                runId: 'r-feedback',
-                sourceAssetDirectory: join(workDir, 'videos')
-            });
-            expect(first.status).toBe('waiting_for_approval');
-            const planScenesStartedFirstTime = collected.filter(
-                (e) =>
-                    e.type === 'node.started' &&
-                    (e as { nodeName?: string }).nodeName === 'plan_scenes'
-            ).length;
-            expect(planScenesStartedFirstTime).toBe(1);
-
-            // 2. resume 驳回 + feedback
-            const rejected = await runner.resume({
-                approval: {
-                    approved: false,
-                    feedback: '把第三段缩短'
-                },
-                runId: 'r-feedback'
-            });
-            expect(rejected.status).toBe('waiting_for_approval');
-
-            // 驳回后 plan_scenes 应再次 node.started (conditional edge 回环)
-            const planScenesStartedAfterReject = collected.filter(
-                (e) =>
-                    e.type === 'node.started' &&
-                    (e as { nodeName?: string }).nodeName === 'plan_scenes'
-            ).length;
-            expect(planScenesStartedAfterReject).toBe(2);
-
-            // 3. resume 批准,继续(approve 后 plan_scenes 又跑一次触发 scene_approval interrupt,
-            // fallback 模式必然再卡 interrupt,不再追多 round 批准)
-            const approved = await runner.resume({
-                approval: { approved: true },
-                runId: 'r-feedback'
-            });
-            expect(['completed', 'failed', 'waiting_for_approval']).toContain(
-                approved.status
-            );
-        }, 60_000);
+        ],
+        sceneId: 'scene-001'
     }
-);
+];
+
+const voices: VoiceSynthesisResult[] = [
+    {
+        assetId: 'voice-001',
+        durationMs: 3000,
+        lineIndex: 0,
+        path: '/tmp/miaoma/voice-001.mp3',
+        sceneId: 'scene-001',
+        text: '智剪让视频创作更快'
+    }
+];
+
+const createFakeTools = ({
+    invalidProject = false
+}: {
+    invalidProject?: boolean;
+} = {}) => {
+    const calls: string[] = [];
+    const tools: VideoAgentTools = {
+        analyzeAssets: async () => {
+            calls.push('analyzeAssets');
+            return assets;
+        },
+        assembleTimeline: async () => {
+            calls.push('assembleTimeline');
+
+            if (invalidProject) {
+                return {
+                    ...sampleVideoProject,
+                    schemaVersion: 'invalid-version'
+                } as unknown as VideoProject;
+            }
+
+            return sampleVideoProject;
+        },
+        generateCreativeBrief: async () => {
+            calls.push('generateCreativeBrief');
+            return brief;
+        },
+        matchAssets: async () => {
+            calls.push('matchAssets');
+            return matches;
+        },
+        planScenes: async () => {
+            calls.push('planScenes');
+            return scenes;
+        },
+        saveProject: async ({ project }) => {
+            calls.push('saveProject');
+            return {
+                path: `/tmp/miaoma/${project.project.id}.json`,
+                project
+            };
+        },
+        scanAssets: async () => {
+            calls.push('scanAssets');
+            return assets;
+        },
+        streamReport: async ({ title }, emitDelta) => {
+            calls.push(`streamReport:${title}`);
+            emitDelta(`报告-${title}-1`);
+            emitDelta(`报告-${title}-2`);
+
+            return `报告-${title}-1报告-${title}-2`;
+        },
+        synthesizeVoice: async () => {
+            calls.push('synthesizeVoice');
+            return voices;
+        },
+        validateProject: async ({ project }) => {
+            calls.push('validateProject');
+            const result = validateVideoProject(project);
+
+            if (!result.success) {
+                return {
+                    error: result.issues[0] ?? 'Invalid project',
+                    success: false
+                };
+            }
+
+            return { success: true };
+        }
+    };
+
+    return { calls, tools };
+};
+
+const collectEvents = () => {
+    const events: AgentRunEvent[] = [];
+
+    return {
+        emit: (event: AgentRunEvent) => {
+            events.push(event);
+        },
+        events
+    };
+};
+
+describe('video creation graph', () => {
+    it('pauses for scene approval before matching assets', async () => {
+        const { calls, tools } = createFakeTools();
+        const { emit, events } = collectEvents();
+        const graph = createVideoCreationGraph({ emit, tools });
+
+        const result = await graph.start(runInput);
+
+        expect(result.status).toBe('waiting_for_approval');
+        expect(result.approval?.type).toBe('scene-plan');
+        expect(result.state?.scenes).toEqual(scenes);
+        expect(calls).toEqual([
+            'scanAssets',
+            'analyzeAssets',
+            'streamReport:内容理解',
+            'generateCreativeBrief',
+            'streamReport:文稿拆解为可执行分镜',
+            'planScenes'
+        ]);
+        expect(events.map((event) => event.type)).toContain(
+            'approval.required'
+        );
+        expect(events[0]).toMatchObject({
+            runId: 'run-test-001',
+            sequence: 1,
+            type: 'run.started'
+        });
+    });
+
+    it('resumes after scene approval and outputs a valid VideoProject', async () => {
+        const { calls, tools } = createFakeTools();
+        const { emit, events } = collectEvents();
+        const graph = createVideoCreationGraph({ emit, tools });
+
+        await graph.start(runInput);
+        const result = await graph.resume({
+            approval: {
+                approved: true
+            },
+            runId: runInput.runId
+        });
+
+        expect(result.status).toBe('completed');
+        expect(validateVideoProject(result.project).success).toBe(true);
+        expect(result.savedProjectPath).toBe(
+            `/tmp/miaoma/${sampleVideoProject.project.id}.json`
+        );
+        expect(calls).toContain('matchAssets');
+        expect(calls).toContain('synthesizeVoice');
+        expect(calls).toContain('saveProject');
+        expect(calls).toEqual(
+            expect.arrayContaining([
+                'streamReport:素材匹配与配音生成',
+                'streamReport:口播配音生成',
+                'streamReport:视频生成与工程整理'
+            ])
+        );
+        expect(events.map((event) => event.type)).toEqual(
+            expect.arrayContaining([
+                'run.started',
+                'node.started',
+                'node.completed',
+                'approval.required',
+                'run.completed'
+            ])
+        );
+    });
+
+    it('returns readable validation errors and emits run.failed', async () => {
+        const { tools } = createFakeTools({ invalidProject: true });
+        const { emit, events } = collectEvents();
+        const graph = createVideoCreationGraph({ emit, tools });
+
+        await graph.start(runInput);
+        const result = await graph.resume({
+            approval: {
+                approved: true
+            },
+            runId: runInput.runId
+        });
+
+        expect(result.status).toBe('failed');
+        expect(result.errors[0]).toContain('schemaVersion');
+        expect(events.at(-1)).toMatchObject({
+            runId: runInput.runId,
+            type: 'run.failed'
+        });
+    });
+
+    it('redacts API-like secrets from failed event payloads', async () => {
+        const { tools } = createFakeTools();
+        const { emit, events } = collectEvents();
+        const graph = createVideoCreationGraph({
+            emit,
+            tools: {
+                ...tools,
+                matchAssets: async () => {
+                    throw new Error(
+                        'provider failed with ark-sensitive-token-123456'
+                    );
+                }
+            }
+        });
+
+        await graph.start(runInput);
+        const result = await graph.resume({
+            approval: {
+                approved: true
+            },
+            runId: runInput.runId
+        });
+
+        expect(result.status).toBe('failed');
+        expect(JSON.stringify(events)).not.toContain(
+            'ark-sensitive-token-123456'
+        );
+        expect(JSON.stringify(events)).toContain('[REDACTED]');
+    });
+
+    it('emits public model stream reports across planning and generation stages', async () => {
+        const { calls, tools } = createFakeTools();
+        const { emit, events } = collectEvents();
+        const graph = createVideoCreationGraph({ emit, tools });
+
+        await graph.start(runInput);
+        await graph.resume({
+            approval: {
+                approved: true
+            },
+            runId: runInput.runId
+        });
+
+        expect(calls).toEqual([
+            'scanAssets',
+            'analyzeAssets',
+            'streamReport:内容理解',
+            'generateCreativeBrief',
+            'streamReport:文稿拆解为可执行分镜',
+            'planScenes',
+            'streamReport:素材匹配与配音生成',
+            'matchAssets',
+            'streamReport:口播配音生成',
+            'synthesizeVoice',
+            'streamReport:视频生成与工程整理',
+            'assembleTimeline',
+            'validateProject',
+            'saveProject'
+        ]);
+        expect(events).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    messageId: 'creative_brief-content-understanding',
+                    nodeName: 'creative_brief',
+                    title: '内容理解',
+                    type: 'model.stream.started'
+                }),
+                expect.objectContaining({
+                    delta: '报告-内容理解-1',
+                    messageId: 'creative_brief-content-understanding',
+                    nodeName: 'creative_brief',
+                    type: 'model.stream.delta'
+                }),
+                expect.objectContaining({
+                    messageId: 'creative_brief-content-understanding',
+                    nodeName: 'creative_brief',
+                    type: 'model.stream.completed'
+                }),
+                expect.objectContaining({
+                    messageId: 'scene_planner-storyboard-breakdown',
+                    nodeName: 'scene_planner',
+                    title: '文稿拆解为可执行分镜',
+                    type: 'model.stream.started'
+                }),
+                expect.objectContaining({
+                    messageId: 'asset_matcher-voice-strategy',
+                    nodeName: 'asset_matcher',
+                    title: '素材匹配与配音生成',
+                    type: 'model.stream.started'
+                }),
+                expect.objectContaining({
+                    messageId: 'timeline_assemble-finalization',
+                    nodeName: 'timeline_assemble',
+                    title: '视频生成与工程整理',
+                    type: 'model.stream.started'
+                })
+            ])
+        );
+    });
+});

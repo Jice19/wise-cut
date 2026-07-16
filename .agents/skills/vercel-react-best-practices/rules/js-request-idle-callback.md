@@ -4,6 +4,7 @@ impact: MEDIUM
 impactDescription: keeps UI responsive during background tasks
 tags: javascript, performance, idle, scheduling, analytics
 ---
+- All rights reserved.
 
 ## Defer Non-Critical Work with requestIdleCallback
 

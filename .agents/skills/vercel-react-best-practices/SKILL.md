@@ -6,6 +6,7 @@ metadata:
   author: vercel
   version: "1.0.0"
 ---
+- All rights reserved.
 
 # Vercel React Best Practices
 

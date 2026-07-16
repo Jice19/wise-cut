@@ -4,6 +4,7 @@ impact: LOW
 impactDescription: avoids unnecessary effect re-runs and lint errors
 tags: advanced, hooks, useEffectEvent, dependencies, effects
 ---
+- All rights reserved.
 
 ## Do Not Put Effect Events in Dependency Arrays
 

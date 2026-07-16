@@ -4,6 +4,7 @@ impact: HIGH
 impactDescription: enables dependency-injectable state across use-cases
 tags: composition, context, state, typescript, dependency-injection
 ---
+- All rights reserved.
 
 ## Define Generic Context Interfaces for Dependency Injection
 

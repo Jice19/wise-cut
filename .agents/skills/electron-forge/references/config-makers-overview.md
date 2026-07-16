@@ -2,6 +2,7 @@
 name: electron-forge-makers-overview
 description: Electron Forge makers — config, platforms; built-in makers (DMG, ZIP, Squirrel, deb, rpm, etc.).
 ---
+- All rights reserved.
 
 # Makers overview
 
@@ -38,7 +39,5 @@ If a maker supports multiple platforms, `platforms` limits which ones run; defau
 
 Install the maker package (e.g. `@electron-forge/maker-dmg`) as a devDependency and add its config to `makers`. To implement a custom maker, extend `@electron-forge/maker-base` and implement `isSupportedOnCurrentPlatform()` and `make()`. See [advanced-extending-makers](references/advanced-extending-makers.md).
 
-<!--
 Source references:
 - https://github.com/electron-forge/electron-forge-docs/blob/main/config/makers/README.md
--->

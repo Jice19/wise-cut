@@ -2,6 +2,7 @@
 name: electron-forge-auto-update
 description: Auto-update with Electron Forge — update.electronjs.org, static storage (S3), custom servers (Nucleus, nuts).
 ---
+- All rights reserved.
 
 # Auto update
 
@@ -32,7 +33,5 @@ For private apps or more control (e.g. staged rollouts, multiple channels), host
 
 Electron’s [Updating Applications](https://electronjs.org/docs/tutorial/updates#deploying-an-update-server) docs list other known update servers.
 
-<!--
 Source references:
 - https://github.com/electron-forge/electron-forge-docs/blob/main/advanced/auto-update.md
--->

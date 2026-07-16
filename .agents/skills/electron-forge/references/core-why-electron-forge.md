@@ -2,6 +2,7 @@
 name: electron-forge-why
 description: Why use Electron Forge; motivation, value proposition, and comparison with Electron Builder.
 ---
+- All rights reserved.
 
 # Why Electron Forge
 
@@ -28,8 +29,6 @@ Use Forge when you want to stay close to official Electron tooling and prefer a 
 - Prerequisites: Node.js ≥ v16.4.0, Git, npm/Yarn/pnpm (pnpm requires `node-linker=hoisted` in `.npmrc`; Yarn ≥2 requires `nodeLinker: node-modules`).
 - Packaging requires `node_modules` on disk; Forge does not support symlinked deps or Yarn PnP.
 
-<!--
 Source references:
 - https://github.com/electron-forge/electron-forge-docs/blob/main/README.md
 - https://github.com/electron-forge/electron-forge-docs/blob/main/core-concepts/why-electron-forge.md
--->

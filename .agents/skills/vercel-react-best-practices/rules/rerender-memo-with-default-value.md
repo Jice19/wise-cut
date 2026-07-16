@@ -6,6 +6,7 @@ impactDescription: restores memoization by using a constant for default value
 tags: rerender, memo, optimization
 
 ---
+- All rights reserved.
 
 ## Extract Default Non-primitive Parameter Value from Memoized Component to Constant
 

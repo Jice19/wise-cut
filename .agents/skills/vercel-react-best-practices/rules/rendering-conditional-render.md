@@ -4,6 +4,7 @@ impact: LOW
 impactDescription: prevents rendering 0 or NaN
 tags: rendering, conditional, jsx, falsy-values
 ---
+- All rights reserved.
 
 ## Use Explicit Conditional Rendering
 

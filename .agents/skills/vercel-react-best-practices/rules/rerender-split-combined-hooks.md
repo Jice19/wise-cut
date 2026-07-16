@@ -4,6 +4,7 @@ impact: MEDIUM
 impactDescription: avoids recomputing independent steps
 tags: rerender, useMemo, useEffect, dependencies, optimization
 ---
+- All rights reserved.
 
 ## Split Combined Hook Computations
 

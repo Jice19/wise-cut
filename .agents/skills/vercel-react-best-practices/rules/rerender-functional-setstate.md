@@ -4,6 +4,7 @@ impact: MEDIUM
 impactDescription: prevents stale closures and unnecessary callback recreations
 tags: react, hooks, useState, useCallback, callbacks, closures
 ---
+- All rights reserved.
 
 ## Use Functional setState Updates
 

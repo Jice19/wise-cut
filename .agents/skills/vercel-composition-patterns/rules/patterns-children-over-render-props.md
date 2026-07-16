@@ -4,6 +4,7 @@ impact: MEDIUM
 impactDescription: cleaner composition, better readability
 tags: composition, children, render-props
 ---
+- All rights reserved.
 
 ## Prefer Children Over Render Props
 

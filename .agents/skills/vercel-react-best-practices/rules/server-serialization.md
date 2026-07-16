@@ -4,6 +4,7 @@ impact: HIGH
 impactDescription: reduces data transfer size
 tags: server, rsc, serialization, props
 ---
+- All rights reserved.
 
 ## Minimize Serialization at RSC Boundaries
 

@@ -2,6 +2,7 @@
 name: electron-forge-templates
 description: Electron Forge built-in templates — webpack, webpack-typescript, vite, vite-typescript; create-electron-app.
 ---
+- All rights reserved.
 
 # Built-in templates
 
@@ -29,8 +30,6 @@ Use `NODE_INSTALLER=npm` (or `yarn`/`pnpm`) to force a package manager. By defau
 
 All include a dev server and HMR where applicable. Prefer these templates to get modern tooling (bundling, TypeScript) without manual plugin setup. Non-builtin templates must be installed globally before running init.
 
-<!--
 Source references:
 - https://github.com/electron-forge/electron-forge-docs/blob/main/README.md
 - https://github.com/electron-forge/electron-forge-docs/blob/main/cli.md
--->

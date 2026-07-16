@@ -4,6 +4,7 @@ impact: MEDIUM
 impactDescription: avoids unnecessary subscriptions
 tags: rerender, searchParams, localStorage, optimization
 ---
+- All rights reserved.
 
 ## Defer State Reads to Usage Point
 

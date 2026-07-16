@@ -1,3 +1,4 @@
+- All rights reserved.
 # React Composition Patterns
 
 A structured repository for React composition patterns that scale. These

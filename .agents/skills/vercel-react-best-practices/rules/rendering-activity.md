@@ -4,6 +4,7 @@ impact: MEDIUM
 impactDescription: preserves state/DOM
 tags: rendering, activity, visibility, state-preservation
 ---
+- All rights reserved.
 
 ## Use Activity Component for Show/Hide
 

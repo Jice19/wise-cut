@@ -2,6 +2,7 @@
 name: electron-forge-typescript-config
 description: TypeScript Forge config — forge.config.ts, ForgeConfig, module constructor syntax.
 ---
+- All rights reserved.
 
 # TypeScript configuration
 
@@ -49,7 +50,5 @@ export default config;
 
 Other languages (e.g. CoffeeScript) are supported if a compatible loader is in `devDependencies` and interpret supports it; the structure matches `forge.config.js`.
 
-<!--
 Source references:
 - https://github.com/electron-forge/electron-forge-docs/blob/main/config/typescript-configuration.md
--->

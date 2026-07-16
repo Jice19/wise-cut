@@ -2,6 +2,7 @@
 name: electron-forge-plugin-vite
 description: Vite plugin for Electron Forge — build/renderer entries, main path, HMR globals, native modules.
 ---
+- All rights reserved.
 
 # Vite plugin
 
@@ -48,7 +49,5 @@ TypeScript: `declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string; declare cons
 - **Native modules**: Mark them as external in the main Vite config (e.g. `build.rollupOptions.external: ['serialport','sqlite3']`) so they are loaded at runtime and not bundled.
 - **HMR**: Use the dev server URL and VITE_NAME globals as above so dev and production loads work.
 
-<!--
 Source references:
 - https://github.com/electron-forge/electron-forge-docs/blob/main/config/plugins/vite.md
--->

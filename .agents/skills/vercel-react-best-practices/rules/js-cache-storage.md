@@ -4,6 +4,7 @@ impact: LOW-MEDIUM
 impactDescription: reduces expensive I/O
 tags: javascript, localStorage, storage, caching, performance
 ---
+- All rights reserved.
 
 ## Cache Storage API Calls
 

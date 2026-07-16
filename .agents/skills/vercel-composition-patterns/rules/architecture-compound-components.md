@@ -4,6 +4,7 @@ impact: HIGH
 impactDescription: enables flexible composition without prop drilling
 tags: composition, compound-components, architecture
 ---
+- All rights reserved.
 
 ## Use Compound Components
 

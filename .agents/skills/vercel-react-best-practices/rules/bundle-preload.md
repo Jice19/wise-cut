@@ -4,6 +4,7 @@ impact: MEDIUM
 impactDescription: reduces perceived latency
 tags: bundle, preload, user-intent, hover
 ---
+- All rights reserved.
 
 ## Preload Based on User Intent
 

@@ -2,6 +2,7 @@
 name: electron-forge-publishers-overview
 description: Electron Forge publishers — config, platforms; GitHub, S3, Nucleus, etc.; auto-update.
 ---
+- All rights reserved.
 
 # Publishers overview
 
@@ -34,8 +35,6 @@ publishers: [
 
 Install the publisher package as devDependency and add to `publishers`. To implement a custom publisher, extend `@electron-forge/publisher-base` and implement `publish()`. See [advanced-extending-publishers](references/advanced-extending-publishers.md).
 
-<!--
 Source references:
 - https://github.com/electron-forge/electron-forge-docs/blob/main/config/publishers/README.md
 - https://github.com/electron-forge/electron-forge-docs/blob/main/config/publishers/github.md
--->

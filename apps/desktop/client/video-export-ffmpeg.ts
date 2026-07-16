@@ -1,4 +1,4 @@
-/* */
+
 import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -7,7 +7,7 @@ import type {
     VideoClip,
     VideoProject,
     VoiceClip
-} from '@miaoma-magicut/video-project';
+} from '@wise-cut/video-project';
 
 import songCatalog from '../renderer/assets/song/song.json';
 import type {
@@ -197,7 +197,6 @@ const hexToAssColor = (hexColor: string) => {
     const green = normalized.slice(2, 4);
     const blue = normalized.slice(4, 6);
 
-    // Raw & prefix needed by ASS / libass
     return `&H00${blue}${green}${red}`.toUpperCase();
 };
 
@@ -746,8 +745,6 @@ export const createVideoExportFfmpegCommand = ({
     const shouldBurnSubtitles = subtitleSettings.isVisible && subtitleSrtPath;
 
     if (shouldBurnSubtitles) {
-        // Single quotes protect the & in ASS colour codes from being
-        // parsed as a filter-chain separator by ffmpeg
         filters.push(
             `[vconcat]subtitles='${escapeSubtitleFilterPath(
                 subtitleSrtPath

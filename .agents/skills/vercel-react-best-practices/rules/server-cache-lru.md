@@ -4,6 +4,7 @@ impact: HIGH
 impactDescription: caches across requests
 tags: server, cache, lru, cross-request
 ---
+- All rights reserved.
 
 ## Cross-Request LRU Caching
 

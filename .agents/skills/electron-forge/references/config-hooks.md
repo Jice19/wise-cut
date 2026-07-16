@@ -2,6 +2,7 @@
 name: electron-forge-hooks
 description: Electron Forge hooks — generateAssets, preStart, postStart, prePackage, packageAfterCopy, postPackage, preMake, postMake, readPackageJson.
 ---
+- All rights reserved.
 
 # Hooks
 
@@ -49,7 +50,5 @@ module.exports = {
 
 **Note:** `readPackageJson` does not change the name/version used by Electron Packager for app metadata; those are read before this hook (in Packager’s `afterCopy`).
 
-<!--
 Source references:
 - https://github.com/electron-forge/electron-forge-docs/blob/main/config/hooks.md
--->

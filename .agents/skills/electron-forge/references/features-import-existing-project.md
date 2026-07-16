@@ -2,6 +2,7 @@
 name: electron-forge-import-existing-project
 description: Import an existing Electron app into Electron Forge — import command and manual setup.
 ---
+- All rights reserved.
 
 # Importing an existing project
 
@@ -43,7 +44,5 @@ npm install --save-dev @electron-forge/cli @electron-forge/maker-squirrel @elect
 
 5. **Publishing (optional)**: Install a publisher (e.g. `@electron-forge/publisher-s3`) and add it to `config.forge.publishers`.
 
-<!--
 Source references:
 - https://github.com/electron-forge/electron-forge-docs/blob/main/import-existing-project.md
--->

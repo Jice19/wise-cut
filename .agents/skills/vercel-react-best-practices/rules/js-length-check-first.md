@@ -4,6 +4,7 @@ impact: MEDIUM-HIGH
 impactDescription: avoids expensive operations when lengths differ
 tags: javascript, arrays, performance, optimization, comparison
 ---
+- All rights reserved.
 
 ## Early Length Check for Array Comparisons
 

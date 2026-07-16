@@ -4,6 +4,7 @@ impact: LOW-MEDIUM
 impactDescription: reduces lookups
 tags: javascript, loops, optimization, caching
 ---
+- All rights reserved.
 
 ## Cache Property Access in Loops
 

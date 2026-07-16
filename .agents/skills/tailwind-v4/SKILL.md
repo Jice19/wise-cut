@@ -2,6 +2,7 @@
 name: tailwind-v4
 description: Tailwind CSS v4 with CSS-first configuration and design tokens. Use when setting up Tailwind v4, defining theme variables, using OKLCH colors, or configuring dark mode. Triggers on @theme, @tailwindcss/vite, oklch, CSS variables, --color-, tailwind v4.
 ---
+- All rights reserved.
 
 # Tailwind CSS v4 Best Practices
 

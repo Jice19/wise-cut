@@ -4,6 +4,7 @@ impact: MEDIUM
 impactDescription: keeps input responsive during heavy computation
 tags: rerender, useDeferredValue, optimization, concurrent
 ---
+- All rights reserved.
 
 ## Use useDeferredValue for Expensive Derived Renders
 

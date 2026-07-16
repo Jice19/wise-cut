@@ -4,6 +4,7 @@ impact: LOW-MEDIUM
 impactDescription: reduces iterations
 tags: javascript, arrays, loops, performance
 ---
+- All rights reserved.
 
 ## Combine Multiple Array Iterations
 

@@ -4,6 +4,7 @@ impact: MEDIUM
 impactDescription: avoids effect re-runs and duplicate side effects
 tags: rerender, useEffect, events, side-effects, dependencies
 ---
+- All rights reserved.
 
 ## Put Interaction Logic in Event Handlers
 

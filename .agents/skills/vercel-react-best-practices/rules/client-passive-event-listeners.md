@@ -4,6 +4,7 @@ impact: MEDIUM
 impactDescription: eliminates scroll delay caused by event listeners
 tags: client, event-listeners, scrolling, performance, touch, wheel
 ---
+- All rights reserved.
 
 ## Use Passive Event Listeners for Scrolling Performance
 

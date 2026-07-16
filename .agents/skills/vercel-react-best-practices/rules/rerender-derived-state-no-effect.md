@@ -4,6 +4,7 @@ impact: MEDIUM
 impactDescription: avoids redundant renders and state drift
 tags: rerender, derived-state, useEffect, state
 ---
+- All rights reserved.
 
 ## Calculate Derived State During Rendering
 

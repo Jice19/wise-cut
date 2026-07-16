@@ -1,3 +1,4 @@
+- All rights reserved.
 # React Composition Patterns
 
 **Version 1.0.0**  

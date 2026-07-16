@@ -2,6 +2,7 @@
 name: electron-forge-debugging
 description: Debugging Electron Forge apps — main process (CLI, VS Code, JetBrains), renderer DevTools.
 ---
+- All rights reserved.
 
 # Debugging
 
@@ -48,7 +49,5 @@ Use **Run > Debug… > Edit Configurations…**, add an npm configuration, choos
 
 For general Electron debugging (renderer, preload), see the [Electron Application Debugging](https://www.electronjs.org/docs/latest/tutorial/application-debugging#renderer-process) docs.
 
-<!--
 Source references:
 - https://github.com/electron-forge/electron-forge-docs/blob/main/advanced/debugging.md
--->

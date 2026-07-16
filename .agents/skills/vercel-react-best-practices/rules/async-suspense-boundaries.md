@@ -4,6 +4,7 @@ impact: HIGH
 impactDescription: faster initial paint
 tags: async, suspense, streaming, layout-shift
 ---
+- All rights reserved.
 
 ## Strategic Suspense Boundaries
 

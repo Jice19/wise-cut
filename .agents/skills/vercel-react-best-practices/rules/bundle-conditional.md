@@ -4,6 +4,7 @@ impact: HIGH
 impactDescription: loads large data only when needed
 tags: bundle, conditional-loading, lazy-loading
 ---
+- All rights reserved.
 
 ## Conditional Module Loading
 

@@ -4,6 +4,7 @@ impact: LOW-MEDIUM
 impactDescription: avoids recreation
 tags: javascript, regexp, optimization, memoization
 ---
+- All rights reserved.
 
 ## Hoist RegExp Creation
 

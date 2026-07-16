@@ -1,7 +1,8 @@
-/* */
+
 import { type FormEvent, type KeyboardEvent, useEffect, useState } from 'react';
 
 import { editorHeader } from '../constants/editor-screen';
+
 import { EditorHomeLink } from './EditorHomeLink';
 import { Icon } from './Icon';
 import { WindowDragRegion } from './WindowDragRegion';
@@ -53,7 +54,7 @@ export const EditorHeader = ({
     };
 
     return (
-        <header className="relative flex h-20 items-start justify-between border-b border-[#E7E5E0] bg-[#FAF9F7] px-5 [app-region:drag] [-webkit-app-region:drag]">
+        <header className="relative flex h-20 items-start justify-between border-b border-[#2A2F38] bg-[#111318] px-5 [app-region:drag] [-webkit-app-region:drag]">
             <WindowDragRegion className="left-0 z-0" />
             <div className="relative z-10 flex w-[230px] items-center gap-3 pt-[30px]">
                 <EditorHomeLink
@@ -64,7 +65,7 @@ export const EditorHeader = ({
                     <div className="text-[15px] font-bold">
                         {editorHeader.productName}
                     </div>
-                    <div className="font-['Geist'] text-[11px] text-[#57534E]">
+                    <div className="font-['Geist'] text-[11px] text-[#6F7784]">
                         {editorHeader.productDescription}
                     </div>
                 </div>
@@ -77,14 +78,14 @@ export const EditorHeader = ({
                 >
                     <input
                         aria-label="项目标题"
-                        className="w-full rounded-md border border-transparent bg-transparent px-2 py-0.5 text-center text-xl font-[750] leading-5 text-[#1C1917] outline-none transition-colors duration-200 hover:border-[#E7E5E0] focus:border-[#E7E5E0] focus:bg-[#FAF9F7] [app-region:no-drag] [-webkit-app-region:no-drag]"
+                        className="w-full rounded-md border border-transparent bg-transparent px-2 py-0.5 text-center text-xl font-[750] leading-5 text-[#F5F7FA] outline-none transition-colors duration-200 hover:border-[#2A2F38] focus:border-[#6B5B80] focus:bg-[#171A20] [app-region:no-drag] [-webkit-app-region:no-drag]"
                         value={draftTitle}
                         onBlur={commitTitle}
                         onChange={(event) => setDraftTitle(event.target.value)}
                         onKeyDown={handleTitleKeyDown}
                     />
                 </form>
-                <p className="mt-1 font-['Geist'] text-[11px] text-[#57534E]">
+                <p className="mt-1 font-['Geist'] text-[11px] text-[#6F7784]">
                     {status}
                 </p>
             </div>
@@ -94,7 +95,7 @@ export const EditorHeader = ({
                     type="button"
                     disabled={primaryActionDisabled}
                     onClick={onPrimaryAction}
-                    className="flex h-9 items-center gap-2 rounded-lg bg-[#D97706] px-4 text-[13px] font-[750] text-white shadow-[0_10px_22px_rgba(240,95,115,0.22)] disabled:cursor-not-allowed disabled:opacity-60 [app-region:no-drag] [-webkit-app-region:no-drag]"
+                    className="flex h-9 items-center gap-2 rounded-lg bg-[#F05F73] px-4 text-[13px] font-[750] text-white shadow-[0_10px_22px_rgba(240,95,115,0.22)] disabled:cursor-not-allowed disabled:opacity-60 [app-region:no-drag] [-webkit-app-region:no-drag]"
                 >
                     <Icon name="download" />
                     {primaryActionLabel}

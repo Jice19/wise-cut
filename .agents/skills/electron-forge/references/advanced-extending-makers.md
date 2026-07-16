@@ -2,6 +2,7 @@
 name: electron-forge-writing-makers
 description: Writing Electron Forge makers — MakerBase, isSupportedOnCurrentPlatform, make.
 ---
+- All rights reserved.
 
 # Writing makers
 
@@ -40,7 +41,5 @@ async make(opts) {
 
 See [MakerBase](https://js.electronforge.io/classes/_electron_forge_maker_base.MakerBase.html) for the full API.
 
-<!--
 Source references:
 - https://github.com/electron-forge/electron-forge-docs/blob/main/advanced/extending-electron-forge/writing-makers.md
--->

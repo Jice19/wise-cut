@@ -9,12 +9,12 @@
         "allowImportingTsExtensions": true,
         "isolatedModules": true,
         "moduleDetection": "force",
-        "types": ["node"],
+        "types": [],
         "noEmit": true,
         "strict": true,
         "noUnusedLocals": true,
         "noUnusedParameters": true,
         "noFallthroughCasesInSwitch": true
     },
-    "include": ["src"]
+    "include": ["src", "tests", "tsdown.config.ts"]
 }

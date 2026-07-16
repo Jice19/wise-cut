@@ -4,6 +4,7 @@ impact: CRITICAL
 impactDescription: prevents unauthorized access to server mutations
 tags: server, server-actions, authentication, security, authorization
 ---
+- All rights reserved.
 
 ## Authenticate Server Actions Like API Routes
 

@@ -4,6 +4,7 @@ impact: CRITICAL
 impactDescription: eliminates server-side waterfalls
 tags: server, rsc, parallel-fetching, composition
 ---
+- All rights reserved.
 
 ## Parallel Data Fetching with Component Composition
 

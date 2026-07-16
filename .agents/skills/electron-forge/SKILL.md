@@ -6,6 +6,7 @@ metadata:
   version: "2026.1.30"
   source: Generated from https://github.com/electron-forge/electron-forge-docs, scripts located at https://github.com/antfu/skills
 ---
+- All rights reserved.
 
 Electron Forge is an all-in-one tool for packaging and distributing Electron applications. It combines packaging, code signing, installers, and publishing into one pipeline and supports custom plugins, makers, and publishers.
 

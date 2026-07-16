@@ -4,6 +4,7 @@ impact: LOW
 impactDescription: stable subscriptions
 tags: advanced, hooks, refs, event-handlers, optimization
 ---
+- All rights reserved.
 
 ## Store Event Handlers in Refs
 

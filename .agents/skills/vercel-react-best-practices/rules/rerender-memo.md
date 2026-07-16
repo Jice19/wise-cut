@@ -4,6 +4,7 @@ impact: MEDIUM
 impactDescription: enables early returns
 tags: rerender, memo, useMemo, optimization
 ---
+- All rights reserved.
 
 ## Extract to Memoized Components
 

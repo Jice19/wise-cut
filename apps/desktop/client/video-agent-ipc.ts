@@ -1,692 +1,1052 @@
-/**
- * video-agent 主进程 controller —— commit 6 阶段。
- *
- * 两种实现:
- *   - createDemoVideoAgentController:用 setTimeout 模拟 10 节点流水线进度
- *     (commit 5 引入),无需 LangGraph + 无需 ffmpeg + LLM,适合本地 smoke test
- *   - createLangGraphVideoAgentController:接 LangGraph StateGraph 跑真实
- *     scan_assets + analyze_assets 两个节点,真解析视频元数据 + 帧描述
- *     (commit 6 聚焦版,其它 8 节点留 commit 6.5)
- *
- * 两种实现共用 13 种 AgentRunEvent + per-invoke emit 闭包,渲染层不感知。
- */
 
-import { mkdir, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-
-import type { IpcMainInvokeEvent } from 'electron';
+import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 import {
+    type AgentEnv,
     type AgentRunEvent,
-    IPC,
-    type SceneApprovalRequest,
-    type VideoCreationInput
-} from '../shared/ipc';
+    ArkChatModelProvider,
+    createVideoCreationGraph,
+    IndexTts2Provider,
+    loadAgentEnv,
+    type ModelProvider,
+    RoutingTtsProvider,
+    serializeError,
+    type TtsProvider,
+    type VideoCreationGraphRunner,
+    VolcengineTtsProvider
+} from '@wise-cut/video-agent';
 
-/**
- * run 状态(controller 内部维护)。
- */
-type RunState = {
-    input: VideoCreationInput;
-    cancelled: boolean;
-    projectPath: string | undefined;
-    /** per-run 递增事件 seq */
-    seq: number;
-    /** 等待 scene_approval 的 resolve 句柄,approve 时调用 */
-    approvalResolve: ((approved: boolean) => void) | undefined;
-    /** approve 后流水线继续推进 */
-    approvalReject: ((error: Error) => void) | undefined;
-    /** 给单 run 用的临时目录(导出/中间文件) */
-    workDir: string;
+import type {
+    DesktopAgentRunEvent,
+    VideoAgentApprovalInput,
+    VideoAgentCancelInput,
+    VideoAgentOperationResult,
+    VideoAgentRegenerateSceneInput,
+    VideoAgentRegenerateVoicesInput,
+    VideoAgentResultData,
+    VideoAgentStartInput
+} from '../shared/video-agent';
+import { videoAgentIpcChannels } from '../shared/video-agent-channels';
+import { normalizeVideoAgentVoiceSettings } from '../shared/video-agent-voices';
+
+import { regenerateVideoProjectScene } from './video-agent-scene-regeneration';
+import { createDesktopVideoAgentTools } from './video-agent-tools';
+import {
+    isVoiceRegenerationCancelled,
+    regenerateVideoProjectVoices
+} from './video-agent-voice-regeneration';
+import type { VideoProjectStore } from './video-project-store';
+
+export { videoAgentIpcChannels };
+
+type VideoAgentIpcSender = {
+    send: (channel: string, event: DesktopAgentRunEvent) => void;
 };
 
-/**
- * controller 通过 emit 把事件推给指定 renderer 进程(per-invoke 闭包)。
- */
-export type DesktopEventEmitter = (event: AgentRunEvent) => void;
+type VideoAgentIpcEvent = {
+    sender: VideoAgentIpcSender;
+};
 
-/**
- * 保存项目到本机磁盘的工具接口 —— commit 5 阶段直接落到 userData
- * 下的 project.json,commit 7 起改用 video-project-store。
- */
-type ProjectStore = (params: {
-    projectId: string;
-    projectJson: unknown;
-    outputDir: string;
-}) => Promise<string>;
+type VideoAgentIpcMain = {
+    handle: (
+        channel: string,
+        handler: (
+            event: VideoAgentIpcEvent,
+            input: unknown
+        ) => Promise<unknown> | unknown
+    ) => void;
+};
 
-/**
- * 创建 demo controller —— plan §16.3 阶段 B + §17.2 commit 5 主体。
- *
- * commit 18:demo 模式真接 LangGraph runner,扫真实素材目录 + 跑 10 节点
- * pipeline,scene_approval interrupt 走 Command({ resume }) 真接 resume。
- */
-export const createDemoVideoAgentController = (options: {
-    outputBaseDir: string;
-    projectStore?: never;
-}) => {
-    const runs = new Map<string, RunState>();
-    const outputBaseDir = options.outputBaseDir;
+type UnsequencedDesktopAgentRunEvent = DesktopAgentRunEvent extends infer Event
+    ? Event extends DesktopAgentRunEvent
+        ? Omit<Event, 'createdAt' | 'runId' | 'sequence'>
+        : never
+    : never;
 
-    // 单 emitter:内部自动注入 runId/seq/timestamp,调用者只填事件特有字段
-    const makeEmitter =
-        (runId: string, base: DesktopEventEmitter) =>
-        // 用 Record 包事件主体,这样 discriminated union 的窄类型自动继承
-        (event: Record<string, unknown>): void => {
-            const st = runs.get(runId);
-            const seq = st ? ++st.seq : 0;
-            const evt = {
-                ...event,
-                runId,
-                seq,
-                timestamp: Date.now()
-            } as unknown as AgentRunEvent;
-            base(evt);
+export type VideoAgentEventEmitter = (event: DesktopAgentRunEvent) => void;
+
+export type VideoAgentIpcController = {
+    approve: (
+        input: VideoAgentApprovalInput,
+        emit: VideoAgentEventEmitter
+    ) => Promise<VideoAgentOperationResult<VideoAgentResultData>>;
+    cancel: (
+        input: VideoAgentCancelInput,
+        emit: VideoAgentEventEmitter
+    ) => Promise<VideoAgentOperationResult<VideoAgentResultData>>;
+    regenerateScene: (
+        input: VideoAgentRegenerateSceneInput,
+        emit: VideoAgentEventEmitter
+    ) => Promise<VideoAgentOperationResult<VideoAgentResultData>>;
+    regenerateVoices: (
+        input: VideoAgentRegenerateVoicesInput,
+        emit: VideoAgentEventEmitter
+    ) => Promise<VideoAgentOperationResult<VideoAgentResultData>>;
+    start: (
+        input: VideoAgentStartInput,
+        emit: VideoAgentEventEmitter
+    ) => Promise<VideoAgentOperationResult<VideoAgentResultData>>;
+};
+
+type DemoVideoAgentRunState = {
+    input: VideoAgentStartInput;
+    runId: string;
+    sequence: number;
+};
+
+type LangGraphVideoAgentRunState = {
+    input: VideoAgentStartInput;
+    runId: string;
+    sequence: number;
+};
+
+type VoiceRegenerationRunState = {
+    cancelEventEmitted: boolean;
+    cancelled: boolean;
+    runId: string;
+    sequence: number;
+};
+
+type LangGraphRunnerFactory = (input: {
+    emit: (event: AgentRunEvent) => void;
+    getSelectedVoice: (runId: string) => string | undefined;
+    getSelectedVoiceType: (runId: string) => string | undefined;
+}) => VideoCreationGraphRunner;
+
+type ProviderFactoryInput = {
+    customVoiceReferenceResolver?: (
+        voiceId: string
+    ) => Promise<string> | string;
+    loadEnv?: () => AgentEnv;
+    modelProvider?: ModelProvider;
+    ttsProvider?: TtsProvider;
+};
+
+type ProviderFactoryResult = {
+    modelProvider: ModelProvider;
+    ttsProvider: TtsProvider;
+};
+
+const success = <T>(data: T): VideoAgentOperationResult<T> => ({
+    data,
+    success: true
+});
+
+const failure = <T>({
+    code,
+    message
+}: {
+    code: 'CANCELLED' | 'RUN_FAILED' | 'VALIDATION_FAILED';
+    message: string;
+}): VideoAgentOperationResult<T> => ({
+    error: {
+        code,
+        message
+    },
+    success: false
+});
+
+const normalizeStartInput = (input: VideoAgentStartInput) => ({
+    ...input,
+    prompt: input.prompt.trim(),
+    selectedVoice: input.selectedVoice.trim(),
+    selectedVoiceType: input.selectedVoiceType?.trim(),
+    sourceAssetDirectory: input.sourceAssetDirectory.trim(),
+    ...normalizeVideoAgentVoiceSettings(input)
+});
+
+const normalizeRegenerateSceneInput = (
+    input: VideoAgentRegenerateSceneInput
+) => ({
+    ...input,
+    projectId: input.projectId.trim(),
+    prompt: input.prompt.trim(),
+    sceneId: input.sceneId.trim(),
+    selectedVoice: input.selectedVoice.trim(),
+    selectedVoiceType: input.selectedVoiceType?.trim(),
+    ...normalizeVideoAgentVoiceSettings(input)
+});
+
+const normalizeRegenerateVoicesInput = (
+    input: VideoAgentRegenerateVoicesInput
+) => ({
+    ...input,
+    projectId: input.projectId.trim(),
+    selectedVoice: input.selectedVoice.trim(),
+    selectedVoiceType: input.selectedVoiceType?.trim(),
+    ...normalizeVideoAgentVoiceSettings(input)
+});
+
+const findAgentEnvFilePath = () => {
+    const candidates = [process.cwd()];
+    let currentDirectory = process.cwd();
+
+    for (let index = 0; index < 4; index += 1) {
+        const parentDirectory = path.dirname(currentDirectory);
+
+        if (parentDirectory === currentDirectory) break;
+
+        candidates.push(parentDirectory);
+        currentDirectory = parentDirectory;
+    }
+
+    for (const directory of candidates) {
+        for (const fileName of ['.env.local', '.env']) {
+            const filePath = path.join(directory, fileName);
+
+            if (existsSync(filePath)) return filePath;
+        }
+    }
+
+    return undefined;
+};
+
+const createDefaultProviders = ({
+    customVoiceReferenceResolver,
+    loadEnv,
+    modelProvider,
+    ttsProvider
+}: ProviderFactoryInput): ProviderFactoryResult => {
+    if (modelProvider && ttsProvider) {
+        return {
+            modelProvider,
+            ttsProvider
         };
+    }
 
-    /**
-     * 主入口 —— commit 18:走 createVideoCreationGraph 真跑 10 节点。
-     */
-    const start = async (
-        input: VideoCreationInput,
-        emit: DesktopEventEmitter
-    ): Promise<{
-        status: 'completed' | 'cancelled' | 'failed';
-        projectPath?: string;
-    }> => {
-        const startedAt = Date.now();
-        const workDir = join(outputBaseDir, `run-${input.runId}`);
-        await mkdir(workDir, { recursive: true });
+    const env =
+        loadEnv?.() ?? loadAgentEnv({ envFilePath: findAgentEnvFilePath() });
+    const defaultTtsProvider =
+        ttsProvider ?? new VolcengineTtsProvider({ env });
+    const resolvedTtsProvider =
+        ttsProvider || !customVoiceReferenceResolver
+            ? defaultTtsProvider
+            : new RoutingTtsProvider({
+                  customProvider: new IndexTts2Provider({
+                      resolveVoiceReferencePath: customVoiceReferenceResolver
+                  }),
+                  defaultProvider: defaultTtsProvider
+              });
 
-        const state: RunState = {
-            approvalReject: undefined,
-            approvalResolve: undefined,
-            cancelled: false,
-            input,
-            projectPath: undefined,
-            seq: 0,
-            workDir
+    return {
+        modelProvider: modelProvider ?? new ArkChatModelProvider({ env }),
+        ttsProvider: resolvedTtsProvider
+    };
+};
+
+const toDesktopGraphEvent = ({
+    event,
+    state
+}: {
+    event: AgentRunEvent;
+    state: LangGraphVideoAgentRunState;
+}): DesktopAgentRunEvent => {
+    if (event.type === 'run.started') {
+        return {
+            ...event,
+            input: {
+                ...event.input,
+                selectedVoice: state.input.selectedVoice,
+                selectedVoiceType: state.input.selectedVoiceType,
+                voiceSpeed: state.input.voiceSpeed,
+                voiceVolume: state.input.voiceVolume
+            }
         };
-        runs.set(input.runId, state);
+    }
 
-        const emitEvt = makeEmitter(input.runId, emit);
+    return event as DesktopAgentRunEvent;
+};
 
-        try {
-            emitEvt({ type: 'run.started', input });
+const graphResultToOperationResult = ({
+    errors,
+    runId,
+    status
+}: {
+    errors: string[];
+    runId: string;
+    status: 'completed' | 'failed' | 'waiting_for_approval';
+}): VideoAgentOperationResult<VideoAgentResultData> => {
+    if (status === 'failed') {
+        return failure({
+            code: 'RUN_FAILED',
+            message: errors[0] ?? '智能体任务执行失败'
+        });
+    }
 
-            // commit 19/20.2:真接 LLM / TTS —— 双重 key 名兼容(老
-            // ARK_API_KEY / 新 API_KEY)。两者任一存在即走真路径。
-            const {
-                createVideoCreationGraph,
-                createSequencedEventEmitter,
-                setModelProvider
-            } = await import('@miaoma-magicut/video-agent');
+    return success({ runId });
+};
 
-            const llmApiKey =
-                process.env['ARK_API_KEY'] ?? process.env['API_KEY'];
-            if (llmApiKey) {
-                const { MinimaxM3ModelProvider } = await import(
-                    '@miaoma-magicut/video-agent'
-                );
-                setModelProvider(
-                    new MinimaxM3ModelProvider({ apiKey: llmApiKey })
-                );
-            } else {
-                // 没配 key,跑 stub —— 节点各自 fallback 路径
-                setModelProvider({
-                    describeFrames: async () => {
-                        throw new Error('demo mode: no LLM');
-                    },
-                    generateText: async () => {
-                        throw new Error('demo mode: no LLM');
-                    }
-                } as never);
+export const createDemoVideoAgentController = ({
+    createRunId = () => `run_${randomUUID()}`,
+    now = () => new Date().toISOString()
+}: {
+    createRunId?: () => string;
+    now?: () => string;
+} = {}): VideoAgentIpcController => {
+    const runs = new Map<string, DemoVideoAgentRunState>();
+
+    const emitForRun = (
+        state: DemoVideoAgentRunState,
+        event: UnsequencedDesktopAgentRunEvent,
+        emit: VideoAgentEventEmitter
+    ) => {
+        state.sequence += 1;
+        emit({
+            ...event,
+            createdAt: now(),
+            runId: state.runId,
+            sequence: state.sequence
+        } as DesktopAgentRunEvent);
+    };
+
+    return {
+        approve: async (input, emit) => {
+            const state = runs.get(input.runId);
+
+            if (!state) {
+                return failure({
+                    code: 'RUN_FAILED',
+                    message: '未找到对应的智能体任务'
+                });
             }
 
-            // commit 20.3:env 有 VOLCENGINE_TTS_APP_ID / 新名
-            // VOLCENGINE_TTS_API_KEY 时 writeMp3 走真 TTS 路径,否则 stub。
-            // 真 TTS 没有字级时间戳返回值,用 estimateWordTimestamps 估算(原
-            // synthesize_voice 节点 fallback 也是这条)。
-            const ttsApiKey =
-                process.env['VOLCENGINE_TTS_APP_ID'] ??
-                process.env['VOLCENGINE_TTS_API_KEY'];
-            const defaultVoiceId =
-                process.env['TTS_DEFAULT_VOICE_ID'] ??
-                'zh_female_gaolengyujie_uranus_bigtts';
-            // commit 20.10:vite rebuild kicker(workspace packages/video-agent
-            // 改动不自动触发 apps/desktop main bundle 重建,这里动一行触发)
-            // commit 22:workspace 包内 llm-json.ts 改动触发 vite rebuild main
-            // bundle,plan_scenes 节点走增强后的 extractJsonFromLlmResponse。
-            // commit 23:workspace analyze-assets 改动触发 vite rebuild main
-            // bundle,analyze_assets 节点改进 degrade 错误信息显示。
-            const { mkdir, writeFile, copyFile } = await import(
-                'node:fs/promises'
-            );
-            const desktopTools = {
-                readImageAsBase64DataUrl: async () => {
-                    throw new Error('demo: readImageAsBase64DataUrl not impl');
+            if (!input.approved) {
+                emitForRun(
+                    state,
+                    {
+                        reason: '用户取消分镜确认',
+                        type: 'run.cancelled'
+                    },
+                    emit
+                );
+
+                return failure({
+                    code: 'CANCELLED',
+                    message: '已取消智能创作任务'
+                });
+            }
+
+            emitForRun(
+                state,
+                {
+                    nodeName: 'asset_matcher',
+                    type: 'node.started'
                 },
-                writeMp3: ttsApiKey
-                    ? async (input: {
-                          audioFilePath: string;
-                          narration: string;
-                          voiceId: string;
-                      }) => {
-                          const { estimateWordTimestamps } = await import(
-                              '@miaoma-magicut/video-agent'
-                          );
-                          const { getCachedOrNull, writeTtsCache } =
-                              await import('./tts-cache.ts');
-                          const { VolcengineTtsProvider } = await import(
-                              '../scripts/api-probe/providers/volcengine-tts-provider.ts'
-                          );
+                emit
+            );
+            emitForRun(
+                state,
+                {
+                    nodeName: 'asset_matcher',
+                    type: 'node.completed'
+                },
+                emit
+            );
+            emitForRun(
+                state,
+                {
+                    nodeName: 'tts',
+                    type: 'node.started'
+                },
+                emit
+            );
+            emitForRun(
+                state,
+                {
+                    nodeName: 'tts',
+                    type: 'node.completed'
+                },
+                emit
+            );
+            emitForRun(
+                state,
+                {
+                    nodeName: 'timeline_assemble',
+                    type: 'node.started'
+                },
+                emit
+            );
+            emitForRun(
+                state,
+                {
+                    nodeName: 'timeline_assemble',
+                    type: 'node.completed'
+                },
+                emit
+            );
+            emitForRun(
+                state,
+                {
+                    projectId: `project_${state.runId}`,
+                    savedProjectPath: undefined,
+                    type: 'run.completed'
+                },
+                emit
+            );
 
-                          // 1. 缓存命中 → 直接拷到目标 path
-                          const cached = await getCachedOrNull(
-                              input.narration,
-                              input.voiceId
-                          );
-                          if (cached) {
-                              await mkdir(
-                                  input.audioFilePath
-                                      .split('/')
-                                      .slice(0, -1)
-                                      .join('/'),
-                                  { recursive: true }
-                              );
-                              await copyFile(
-                                  cached.audioFilePath,
-                                  input.audioFilePath
-                              );
-                              return { wordTimestamps: cached.wordTimestamps };
-                          }
+            return success({
+                runId: state.runId
+            });
+        },
+        cancel: async (input, emit) => {
+            const state = runs.get(input.runId);
 
-                          // 2. miss → 调真 TTS,落缓存 + 拷到目标 path
-                          await mkdir(
-                              input.audioFilePath
-                                  .split('/')
-                                  .slice(0, -1)
-                                  .join('/'),
-                              { recursive: true }
-                          );
-                          const provider = new VolcengineTtsProvider({
-                              apiKey: ttsApiKey
-                          });
-                          await provider.synthesizeSpeech({
-                              outputPath: input.audioFilePath,
-                              text: input.narration,
-                              voice: input.voiceId
-                          });
-                          const { readFile } = await import('node:fs/promises');
-                          const audioBytes = await readFile(
-                              input.audioFilePath
-                          );
-                          const durationMs = 4000; // 与 scene 默认 3-5s 对齐
-                          const wordTimestamps = estimateWordTimestamps(
-                              input.narration,
-                              durationMs
-                          );
-                          await writeTtsCache({
-                              audioBytes,
-                              durationMs,
-                              narration: input.narration,
-                              voiceId: input.voiceId,
-                              wordTimestamps
-                          });
-                          return { wordTimestamps };
-                      }
-                    : async () => {
-                          throw new Error('demo: writeMp3 not impl');
-                      },
-                writeProject: async (input: {
-                    outputDir: string;
-                    projectId: string;
-                    projectJson: unknown;
-                }) => {
-                    await mkdir(input.outputDir, { recursive: true });
-                    const filePath = join(
-                        input.outputDir,
-                        `${input.projectId}.json`
-                    );
-                    await writeFile(
-                        filePath,
-                        JSON.stringify(input.projectJson, null, 2),
-                        'utf-8'
-                    );
-                    return filePath;
-                }
+            if (!state) {
+                return failure({
+                    code: 'RUN_FAILED',
+                    message: '未找到对应的智能体任务'
+                });
+            }
+
+            emitForRun(
+                state,
+                {
+                    reason: '用户取消任务',
+                    type: 'run.cancelled'
+                },
+                emit
+            );
+
+            return success({
+                runId: state.runId
+            });
+        },
+        regenerateScene: async (rawInput, emit) => {
+            const input = normalizeRegenerateSceneInput(rawInput);
+            const state: DemoVideoAgentRunState = {
+                input: {
+                    prompt: input.prompt,
+                    selectedVoice: input.selectedVoice,
+                    selectedVoiceType: input.selectedVoiceType,
+                    sourceAssetDirectory: input.projectId,
+                    voiceSpeed: input.voiceSpeed,
+                    voiceVolume: input.voiceVolume
+                },
+                runId: `regen_${randomUUID()}`,
+                sequence: 0
             };
 
-            // 让 save_project 节点走 demo controller 自己的 outputBaseDir
-            // (覆盖节点默认的 ~/.miaoma-projects,electron 启动时再覆盖)
-            process.env['MIAOMA_PROJECT_OUTPUT_DIR'] = outputBaseDir;
-
-            const sequencedEmit = createSequencedEventEmitter({
-                runId: input.runId,
-                sink: (evt) => emitEvt(evt as never)
-            });
-
-            const runner = createVideoCreationGraph({
-                emit: (evt) => sequencedEmit(evt as never),
-                tools: desktopTools as never
-            });
-
-            // commit 20.4:用户没指定 voice 时,塞 env 默认 voice id(避免
-            // synthesize_voice 节点 fallback 'default-female' 在火山方舟 API
-            // 返回 'resource ID is mismatched with speaker related resource')。
-            const inputWithVoice = {
-                ...input,
-                voiceConfig: input.voiceConfig ?? {
-                    provider: 'volcengine-seed-tts',
-                    voiceId: defaultVoiceId
-                },
-                selectedVoiceType: defaultVoiceId
-            } as typeof input;
-
-            // 真跑 runner —— scan / analyze / brief / plan / scene_approval
-            const firstResult = await runner.start(inputWithVoice);
-
-            if (firstResult.status === 'failed') {
-                emitEvt({
-                    error: firstResult.errors.join('; '),
-                    type: 'run.failed'
+            if (!input.projectId || !input.sceneId || !input.prompt) {
+                return failure({
+                    code: 'VALIDATION_FAILED',
+                    message: '请选择分镜并输入优化要求'
                 });
-                return { status: 'failed' };
             }
 
-            if (firstResult.status === 'waiting_for_approval') {
-                // emit interrupt 事件(让 UI 弹窗)
-                emitEvt({
-                    type: 'interrupt',
-                    interruptType: 'scene_approval',
-                    payload: firstResult.approval ?? {}
-                });
+            emitForRun(
+                state,
+                {
+                    nodeName: 'scene_planner',
+                    type: 'node.started'
+                },
+                emit
+            );
+            emitForRun(
+                state,
+                {
+                    nodeName: 'asset_matcher',
+                    type: 'node.started'
+                },
+                emit
+            );
+            emitForRun(
+                state,
+                {
+                    nodeName: 'tts',
+                    type: 'node.started'
+                },
+                emit
+            );
+            emitForRun(
+                state,
+                {
+                    projectId: input.projectId,
+                    type: 'run.completed'
+                },
+                emit
+            );
 
-                // 等 renderer 调 approve 或 cancel 调用把 approvalReject 唤醒
-                const outcome = await new Promise<'cancelled' | 'approved'>(
-                    (resolve) => {
-                        state.approvalResolve = (ok) =>
-                            resolve(ok ? 'approved' : 'cancelled');
-                        state.approvalReject = () => resolve('cancelled');
-                    }
+            return success({
+                projectId: input.projectId,
+                runId: state.runId
+            });
+        },
+        regenerateVoices: async (rawInput, emit) => {
+            const input = normalizeRegenerateVoicesInput(rawInput);
+            const state: DemoVideoAgentRunState = {
+                input: {
+                    prompt: '重新生成全量旁白',
+                    selectedVoice: input.selectedVoice,
+                    selectedVoiceType: input.selectedVoiceType,
+                    sourceAssetDirectory: input.projectId,
+                    voiceSpeed: input.voiceSpeed,
+                    voiceVolume: input.voiceVolume
+                },
+                runId: `voice_regen_${randomUUID()}`,
+                sequence: 0
+            };
+
+            if (!input.projectId || !input.selectedVoice) {
+                return failure({
+                    code: 'VALIDATION_FAILED',
+                    message: '请选择项目和音色'
+                });
+            }
+
+            emitForRun(
+                state,
+                {
+                    nodeName: 'voice_regeneration',
+                    type: 'node.started'
+                },
+                emit
+            );
+            emitForRun(
+                state,
+                {
+                    projectId: input.projectId,
+                    type: 'run.completed'
+                },
+                emit
+            );
+
+            return success({
+                projectId: input.projectId,
+                runId: state.runId
+            });
+        },
+        start: async (rawInput, emit) => {
+            const input = normalizeStartInput(rawInput);
+
+            if (!input.sourceAssetDirectory) {
+                return failure({
+                    code: 'VALIDATION_FAILED',
+                    message: '请选择本地素材目录'
+                });
+            }
+
+            if (!input.prompt) {
+                return failure({
+                    code: 'VALIDATION_FAILED',
+                    message: '请输入视频创作文稿'
+                });
+            }
+
+            const state: DemoVideoAgentRunState = {
+                input,
+                runId: createRunId(),
+                sequence: 0
+            };
+            runs.set(state.runId, state);
+
+            emitForRun(
+                state,
+                {
+                    input: {
+                        prompt: input.prompt,
+                        selectedVoice: input.selectedVoice,
+                        selectedVoiceType: input.selectedVoiceType,
+                        sourceAssetDirectory: input.sourceAssetDirectory,
+                        voiceSpeed: input.voiceSpeed,
+                        voiceVolume: input.voiceVolume
+                    },
+                    type: 'run.started'
+                },
+                emit
+            );
+            emitForRun(
+                state,
+                {
+                    nodeName: 'asset_scan',
+                    type: 'node.started'
+                },
+                emit
+            );
+            emitForRun(
+                state,
+                {
+                    nodeName: 'asset_scan',
+                    type: 'node.completed'
+                },
+                emit
+            );
+            emitForRun(
+                state,
+                {
+                    nodeName: 'scene_planner',
+                    type: 'node.started'
+                },
+                emit
+            );
+            emitForRun(
+                state,
+                {
+                    delta: '正在根据文稿拆解分镜、节奏和画面意图',
+                    nodeName: 'scene_planner',
+                    type: 'model.delta'
+                },
+                emit
+            );
+            emitForRun(
+                state,
+                {
+                    nodeName: 'scene_planner',
+                    type: 'node.completed'
+                },
+                emit
+            );
+            emitForRun(
+                state,
+                {
+                    approval: {
+                        payload: {
+                            prompt: input.prompt,
+                            selectedVoice: input.selectedVoice
+                        },
+                        type: 'scene-plan'
+                    },
+                    type: 'approval.required'
+                },
+                emit
+            );
+
+            return success({
+                runId: state.runId
+            });
+        }
+    };
+};
+
+export const createLangGraphVideoAgentController = ({
+    createRunId = () => `run_${randomUUID()}`,
+    createRunner,
+    customVoiceReferenceResolver,
+    loadEnv,
+    modelProvider,
+    now = () => new Date().toISOString(),
+    store,
+    ttsProvider,
+    voiceOutputDirectory = path.join(tmpdir(), 'miaoma-magicut', 'voices')
+}: {
+    createRunId?: () => string;
+    createRunner?: LangGraphRunnerFactory;
+    customVoiceReferenceResolver?: (
+        voiceId: string
+    ) => Promise<string> | string;
+    loadEnv?: () => AgentEnv;
+    modelProvider?: ModelProvider;
+    now?: () => string;
+    store: VideoProjectStore;
+    ttsProvider?: TtsProvider;
+    voiceOutputDirectory?: string;
+}): VideoAgentIpcController => {
+    const activeEmitters = new Map<string, VideoAgentEventEmitter>();
+    const runs = new Map<string, LangGraphVideoAgentRunState>();
+    const voiceRegenerationRuns = new Map<string, VoiceRegenerationRunState>();
+    const getSelectedVoice = (runId: string) =>
+        runs.get(runId)?.input.selectedVoice;
+    const getSelectedVoiceType = (runId: string) =>
+        runs.get(runId)?.input.selectedVoiceType;
+    const getVoiceSettings = (runId: string) => {
+        const input = runs.get(runId)?.input;
+
+        if (!input) return undefined;
+
+        return {
+            voiceSpeed: input.voiceSpeed,
+            voiceVolume: input.voiceVolume
+        };
+    };
+    const createScopedRunId = (scope: string) => {
+        const runId = createRunId();
+
+        if (runId.startsWith(`${scope}_`)) return runId;
+        if (runId.startsWith('run_')) return `${scope}_${runId.slice(4)}`;
+
+        return `${scope}_${runId}`;
+    };
+
+    const emitGraphEvent = (event: AgentRunEvent) => {
+        const state = runs.get(event.runId);
+
+        if (!state) return;
+
+        state.sequence = event.sequence;
+        activeEmitters.get(event.runId)?.(
+            toDesktopGraphEvent({ event, state })
+        );
+    };
+    let providers: ProviderFactoryResult | undefined;
+    const getProviders = () => {
+        if (providers) return providers;
+
+        providers = createDefaultProviders({
+            customVoiceReferenceResolver,
+            loadEnv,
+            modelProvider,
+            ttsProvider
+        });
+
+        return providers;
+    };
+    let runner: VideoCreationGraphRunner | undefined;
+    const getRunner = () => {
+        if (runner) return runner;
+
+        if (createRunner) {
+            runner = createRunner({
+                emit: emitGraphEvent,
+                getSelectedVoice,
+                getSelectedVoiceType
+            });
+            return runner;
+        }
+
+        const runnerProviders = getProviders();
+
+        runner = createVideoCreationGraph({
+            emit: emitGraphEvent,
+            tools: createDesktopVideoAgentTools({
+                getSelectedVoice,
+                getSelectedVoiceType,
+                getVoiceSettings,
+                modelProvider: runnerProviders.modelProvider,
+                now,
+                store,
+                ttsProvider: runnerProviders.ttsProvider,
+                voiceOutputDirectory
+            })
+        });
+
+        return runner;
+    };
+
+    const emitForRun = (
+        state: LangGraphVideoAgentRunState,
+        event: UnsequencedDesktopAgentRunEvent,
+        emit: VideoAgentEventEmitter
+    ) => {
+        state.sequence += 1;
+        emit({
+            ...event,
+            createdAt: now(),
+            runId: state.runId,
+            sequence: state.sequence
+        } as DesktopAgentRunEvent);
+    };
+
+    const emitForVoiceRegenerationRun = (
+        state: VoiceRegenerationRunState,
+        event: UnsequencedDesktopAgentRunEvent,
+        emit: VideoAgentEventEmitter
+    ) => {
+        state.sequence += 1;
+        emit({
+            ...event,
+            createdAt: now(),
+            runId: state.runId,
+            sequence: state.sequence
+        } as DesktopAgentRunEvent);
+    };
+
+    const runWithEmitter = async (
+        runId: string,
+        emit: VideoAgentEventEmitter,
+        operation: () => Promise<
+            VideoAgentOperationResult<VideoAgentResultData>
+        >
+    ): Promise<VideoAgentOperationResult<VideoAgentResultData>> => {
+        activeEmitters.set(runId, emit);
+
+        try {
+            return await operation();
+        } catch (error) {
+            return failure<VideoAgentResultData>({
+                code: 'RUN_FAILED',
+                message: serializeError(error)
+            });
+        } finally {
+            activeEmitters.delete(runId);
+        }
+    };
+
+    return {
+        approve: async (input, emit) => {
+            const state = runs.get(input.runId);
+
+            if (!state) {
+                return failure({
+                    code: 'RUN_FAILED',
+                    message: '未找到对应的智能体任务'
+                });
+            }
+
+            if (!input.approved) {
+                emitForRun(
+                    state,
+                    {
+                        reason: '用户取消分镜确认',
+                        type: 'run.cancelled'
+                    },
+                    emit
                 );
 
-                if (outcome === 'cancelled') {
-                    emitEvt({ type: 'run.cancelled' });
-                    return { status: 'cancelled' };
-                }
-
-                emitEvt({
-                    type: 'node.completed',
-                    nodeName: 'scene_approval',
-                    durationMs: 0
+                return failure({
+                    code: 'CANCELLED',
+                    message: '已取消智能创作任务'
                 });
+            }
 
-                // 真 resume graph —— 让后续 match / voice / assemble / save 节点真跑
-                const resumed = await runner.resume({
-                    approval: { approved: true },
+            return runWithEmitter(input.runId, emit, async () => {
+                const result = await getRunner().resume({
+                    approval: {
+                        approved: input.approved
+                    },
                     runId: input.runId
                 });
 
-                if (resumed.status === 'failed') {
-                    emitEvt({
-                        error: resumed.errors.join('; '),
-                        type: 'run.failed'
-                    });
-                    return { status: 'failed' };
+                return graphResultToOperationResult(result);
+            });
+        },
+        cancel: async (input, emit) => {
+            const voiceRegenerationState = voiceRegenerationRuns.get(
+                input.runId
+            );
+
+            if (voiceRegenerationState) {
+                voiceRegenerationState.cancelled = true;
+
+                if (!voiceRegenerationState.cancelEventEmitted) {
+                    voiceRegenerationState.cancelEventEmitted = true;
+                    emitForVoiceRegenerationRun(
+                        voiceRegenerationState,
+                        {
+                            reason: '用户取消口播音轨生成',
+                            type: 'run.cancelled'
+                        },
+                        emit
+                    );
                 }
 
-                state.projectPath = resumed.savedProjectPath;
-                emitEvt({
-                    durationMs: Date.now() - startedAt,
-                    projectPath: resumed.savedProjectPath,
-                    type: 'run.completed'
-                });
-                return {
-                    projectPath: resumed.savedProjectPath,
-                    status: 'completed'
-                };
-            }
-
-            // completed 状态(罕见,fallback 全通过)
-            state.projectPath = firstResult.savedProjectPath;
-            emitEvt({
-                durationMs: Date.now() - startedAt,
-                projectPath: firstResult.savedProjectPath,
-                type: 'run.completed'
-            });
-            return {
-                projectPath: firstResult.savedProjectPath,
-                status: 'completed'
-            };
-        } catch (error) {
-            if (state.cancelled) {
-                emitEvt({ type: 'run.cancelled' });
-                return { status: 'cancelled' };
-            }
-            emitEvt({
-                error: (error as Error).message,
-                type: 'run.failed'
-            });
-            throw error;
-        } finally {
-            await rm(workDir, { recursive: true, force: true }).catch(() => {});
-            runs.delete(input.runId);
-        }
-    };
-
-    /**
-     * 批准/驳回 scene_approval。commit 6 起改用 Command({ resume })。
-     */
-    const approve = (runId: string, approved: boolean): boolean => {
-        const state = runs.get(runId);
-        if (!state?.approvalResolve) return false;
-        state.approvalResolve(approved);
-        state.approvalResolve = undefined;
-        state.approvalReject = undefined;
-
-        return true;
-    };
-
-    /**
-     * 取消整个 run —— 下一个 setTimeout 唤醒时检测 cancelled 并抛错。
-     */
-    const cancel = (runId: string): boolean => {
-        const state = runs.get(runId);
-        if (!state) return false;
-        state.cancelled = true;
-        // 唤醒 approval 等待中的 Promise
-        state.approvalReject?.(new Error('cancelled'));
-        state.approvalResolve = undefined;
-        state.approvalReject = undefined;
-
-        return true;
-    };
-
-    /**
-     * 单分镜重生 —— commit 5 简化版(只 emit progress + 完成事件,真重生成
-     * 在 commit 5 step 2 加)。
-     */
-    const regenerateScene = async (
-        runId: string,
-        sceneId: string,
-        feedback: string | undefined,
-        emit: DesktopEventEmitter
-    ): Promise<{ status: 'completed' }> => {
-        const state = runs.get(runId);
-        if (!state) throw new Error(`run ${runId} not found`);
-
-        const emitEvt = makeEmitter(runId, emit);
-        emitEvt({
-            nodeName: 'regenerate_scene',
-            nodeLabel: `重新生成分镜 ${sceneId}`,
-            type: 'node.started'
-        });
-
-        // 模拟耗时
-        await sleep(1500);
-        emitEvt({
-            message: feedback
-                ? `已根据反馈 "${feedback}" 重新生成`
-                : '已重新生成分镜',
-            nodeName: 'regenerate_scene',
-            progress: 100,
-            type: 'node.progress'
-        });
-        emitEvt({
-            durationMs: 1500,
-            nodeName: 'regenerate_scene',
-            type: 'node.completed'
-        });
-
-        return { status: 'completed' };
-    };
-
-    /**
-     * 整批配音重生(emit voice.regeneration.progress)。
-     */
-    const regenerateVoices = async (
-        runId: string,
-        emit: DesktopEventEmitter
-    ): Promise<{ status: 'completed' }> => {
-        const state = runs.get(runId);
-        if (!state) throw new Error(`run ${runId} not found`);
-
-        const emitEvt = makeEmitter(runId, emit);
-
-        for (let i = 1; i <= 5; i += 1) {
-            emitEvt({
-                current: i,
-                percent: i * 20,
-                total: 5,
-                type: 'voice.regeneration.progress'
-            });
-            await sleep(300);
-        }
-
-        return { status: 'completed' };
-    };
-
-    /**
-     * 全量状态拉取 —— commit 6 起从 LangGraph MemorySaver 拉,commit 5 返回
-     * run 元信息 + 当前状态。
-     */
-    const requestFullState = (
-        runId: string
-    ): {
-        runId: string;
-        status: 'running' | 'cancelled' | 'completed' | 'not_found';
-    } => {
-        const state = runs.get(runId);
-        if (!state) return { runId, status: 'not_found' };
-        return { runId, status: state.cancelled ? 'cancelled' : 'running' };
-    };
-
-    return {
-        approve,
-        cancel,
-        regenerateScene,
-        regenerateVoices,
-        requestFullState,
-        start
-    };
-};
-
-const sleep = (ms: number): Promise<void> =>
-    new Promise((r) => setTimeout(r, ms));
-
-/**
- * LangGraph 真接 controller —— commit 6 聚焦版。
- *
- * 跑真实的 scan_assets + analyze_assets 两个节点:
- *   - scan_assets:扫 sourceAssetDirectory,按后缀白名单抽 .mp4/.mov/.mkv/.webm/.avi
- *   - analyze_assets:对每个素材 probeMedia + extractKeyframes + describeFrames(M3 多模态)
- *
- * 输出 state.assets 里每个 AssetAnalysis 含真实 width/height/durationMs/fps/frames[]
- * 帧描述是 M3 返回的中文画面描述。
- *
- * commit 6.5 起会再串 creative_brief → plan_scenes → scene_approval → ...
- */
-
-/**
- * controller 类型 —— main.ts 用这个类型 wire handler。
- */
-export type VideoAgentController = ReturnType<
-    typeof createDemoVideoAgentController
->;
-
-/**
- * ipcMain.handle 的函数签名 —— 单独抽出来便于测试时注入假实现。
- *
- * 用泛型签名兼容各 channel 不同 input/output,跟 electron 真实
- * ipcMain.handle 行为一致。
- */
-type IpcMainHandleFn = <TInput, TOutput>(
-    channel: string,
-    listener: (
-        event: IpcMainInvokeEvent,
-        input: TInput
-    ) => Promise<TOutput> | TOutput
-) => void;
-
-/**
- * 把 controller 绑到 ipcMain,替换 commit 0c 的 stub。
- *
- * 每个 invoke 拿自己的 IpcMainInvokeEvent,闭包构造 per-sender emit,
- * 保证多窗口 / 重连不串号。
- *
- * 入参只暴露 .handle 函数,不依赖整个 ipcMain 对象,便于测试时注入假实现。
- */
-export const registerVideoAgentIpc = ({
-    controller,
-    handle
-}: {
-    controller: VideoAgentController;
-    handle: IpcMainHandleFn;
-}): void => {
-    // per-invoke emit:per-sender 隔离推事件给叫起 invoke 的那个 renderer。
-    // 调用者负责传完整 AgentRunEvent(含 runId/seq/timestamp),
-    // 这里只负责 sender.send 的转发。
-    const makeEmitForEvent = (
-        _event: IpcMainInvokeEvent
-    ): ((evt: AgentRunEvent) => void) => {
-        const sender = _event.sender;
-        return (evt) => {
-            if (!sender.isDestroyed()) sender.send(IPC.VIDEO_AGENT_EVENT, evt);
-        };
-    };
-
-    handle(IPC.VIDEO_AGENT_START, (event, input: VideoCreationInput) => {
-        const emit = makeEmitForEvent(event);
-
-        // fire-and-forget:不 await,renderer 不靠 invoke 返回值判断状态,
-        // 完全靠 video-agent:event 流(run.started / run.completed / run.failed)。
-        // 内部 controller.start 已经 emit run.started 触发流水线。
-        void controller.start(input, emit).catch(() => {
-            // controller 内部 catch 已经 emit run.failed,这里吞异常不重复
-        });
-
-        return { status: 'started' };
-    });
-
-    handle(
-        IPC.VIDEO_AGENT_APPROVE,
-        (event, input: { runId: string; approved: boolean }) => {
-            const emit = makeEmitForEvent(event);
-            const ok = controller.approve(input.runId, input.approved);
-            if (ok) {
-                // approve 成功 → emit interrupt.resumed 通知 renderer 流水线继续
-                emit({
-                    type: 'interrupt.resumed',
-                    interruptType: 'scene_approval',
-                    runId: input.runId,
-                    seq: 0,
-                    timestamp: Date.now()
+                return success({
+                    runId: input.runId
                 });
             }
-            return { accepted: ok };
-        }
-    );
 
-    handle(IPC.VIDEO_AGENT_CANCEL, (_event, input: { runId: string }) => {
-        const cancelled = controller.cancel(input.runId);
-        return { cancelled };
-    });
+            const state = runs.get(input.runId);
 
-    handle(
-        IPC.VIDEO_AGENT_REGENERATE_SCENE,
-        async (
-            event,
-            input: { runId: string; sceneId: string; feedback?: string }
-        ) => {
-            const emit = makeEmitForEvent(event);
-            const result = await controller.regenerateScene(
-                input.runId,
-                input.sceneId,
-                input.feedback,
+            if (!state) {
+                return failure({
+                    code: 'RUN_FAILED',
+                    message: '未找到对应的智能体任务'
+                });
+            }
+
+            emitForRun(
+                state,
+                {
+                    reason: '用户取消任务',
+                    type: 'run.cancelled'
+                },
                 emit
             );
-            return result;
-        }
-    );
 
-    handle(
-        IPC.VIDEO_AGENT_REGENERATE_VOICES,
-        async (event, input: { runId: string }) => {
-            const emit = makeEmitForEvent(event);
-            const result = await controller.regenerateVoices(input.runId, emit);
-            return result;
-        }
-    );
+            return success({
+                runId: input.runId
+            });
+        },
+        regenerateScene: async (rawInput, emit) => {
+            const input = normalizeRegenerateSceneInput(rawInput);
 
-    handle(
-        IPC.VIDEO_AGENT_REQUEST_FULL_STATE,
-        (_event, input: { runId: string }) =>
-            controller.requestFullState(input.runId)
-    );
+            if (!input.projectId || !input.sceneId || !input.prompt) {
+                return failure({
+                    code: 'VALIDATION_FAILED',
+                    message: '请选择分镜并输入优化要求'
+                });
+            }
+
+            try {
+                const sceneRegeneration = await regenerateVideoProjectScene({
+                    createRunId: () => `regen_${randomUUID()}`,
+                    emit,
+                    input,
+                    modelProvider: getProviders().modelProvider,
+                    now,
+                    store,
+                    ttsProvider: getProviders().ttsProvider,
+                    voiceOutputDirectory
+                });
+
+                return success({
+                    projectId: sceneRegeneration.project.project.id,
+                    runId: sceneRegeneration.runId
+                });
+            } catch (error) {
+                return failure({
+                    code: 'RUN_FAILED',
+                    message: serializeError(error)
+                });
+            }
+        },
+        regenerateVoices: async (rawInput, emit) => {
+            const input = normalizeRegenerateVoicesInput(rawInput);
+
+            if (!input.projectId || !input.selectedVoice) {
+                return failure({
+                    code: 'VALIDATION_FAILED',
+                    message: '请选择项目和音色'
+                });
+            }
+
+            const runId = createScopedRunId('voice_regen');
+            const state: VoiceRegenerationRunState = {
+                cancelEventEmitted: false,
+                cancelled: false,
+                runId,
+                sequence: 0
+            };
+            voiceRegenerationRuns.set(runId, state);
+
+            const runInBackground = async () => {
+                try {
+                    await regenerateVideoProjectVoices({
+                        createRunId: () => runId,
+                        emit,
+                        emitForRun: (event) => {
+                            emitForVoiceRegenerationRun(state, event, emit);
+                        },
+                        input,
+                        isCancelled: () => state.cancelled,
+                        now,
+                        runId,
+                        store,
+                        ttsProvider: getProviders().ttsProvider,
+                        voiceOutputDirectory
+                    });
+                } catch (error) {
+                    if (
+                        state.cancelled &&
+                        (state.cancelEventEmitted ||
+                            isVoiceRegenerationCancelled(error))
+                    ) {
+                        return;
+                    }
+
+                    emitForVoiceRegenerationRun(
+                        state,
+                        {
+                            error: serializeError(error),
+                            type: 'run.failed'
+                        },
+                        emit
+                    );
+                } finally {
+                    voiceRegenerationRuns.delete(runId);
+                }
+            };
+
+            void runInBackground();
+
+            return success({
+                projectId: input.projectId,
+                runId
+            });
+        },
+        start: async (rawInput, emit) => {
+            const input = normalizeStartInput(rawInput);
+
+            if (!input.sourceAssetDirectory) {
+                return failure({
+                    code: 'VALIDATION_FAILED',
+                    message: '请选择本地素材目录'
+                });
+            }
+
+            if (!input.prompt) {
+                return failure({
+                    code: 'VALIDATION_FAILED',
+                    message: '请输入视频创作文稿'
+                });
+            }
+
+            const runId = createRunId();
+            const state: LangGraphVideoAgentRunState = {
+                input,
+                runId,
+                sequence: 0
+            };
+            runs.set(runId, state);
+
+            activeEmitters.set(runId, emit);
+
+            const runInBackground = async () => {
+                try {
+                    await getRunner().start({
+                        prompt: input.prompt,
+                        runId,
+                        sourceAssetDirectory: input.sourceAssetDirectory
+                    });
+                } catch (error) {
+                    emitForRun(
+                        state,
+                        {
+                            error: serializeError(error),
+                            type: 'run.failed'
+                        },
+                        emit
+                    );
+                } finally {
+                    activeEmitters.delete(runId);
+                }
+            };
+
+            void runInBackground();
+
+            return success({
+                runId
+            });
+        }
+    };
 };
 
-/**
- * LangGraph 视频创作 controller —— commit 11 stub。
- *
- * commit 10 graph 重构后,start/resume 走 VideoCreationGraphRunner 接口,
- * 旧实现 (createMemoryCheckpointer / graph.invoke / graph.builder) 已
- * 全部移除。langgraph 模式 controller 留空壳,start 抛 not implemented,
- * commit 11+ 会基于新 runner 接口重写完整实现。
- *
- * 当前 desktop 端用 demo 模式走通基本流程;langgraph 模式后续接入。
- */
-export const createLangGraphVideoAgentController = (_options: {
-    outputBaseDir: string;
-    projectStore?: never;
-    modelProvider?: never;
-    ffmpegPath?: string;
-    ffprobePath?: string;
-}): {
-    approve: (runId: string, approved: boolean) => boolean;
-    cancel: (runId: string) => boolean;
-    regenerateScene: (
-        runId: string,
-        sceneId: string,
-        feedback: string | undefined,
-        emit: DesktopEventEmitter
-    ) => Promise<{ status: 'completed' }>;
-    regenerateVoices: (
-        runId: string,
-        emit: DesktopEventEmitter
-    ) => Promise<{
-        status: 'completed';
-    }>;
-    requestFullState: (runId: string) => {
-        runId: string;
-        status: 'running' | 'cancelled' | 'completed' | 'not_found';
-    };
-    start: (
-        input: VideoCreationInput,
-        emit: DesktopEventEmitter
-    ) => Promise<{
-        status: 'completed' | 'cancelled' | 'failed';
-        projectPath?: string;
-    }>;
-} => {
-    return {
-        approve: () => false,
-        cancel: () => false,
-        regenerateScene: async () => {
-            throw new Error(
-                'regenerateScene not implemented in langgraph mode'
-            );
-        },
-        regenerateVoices: async () => {
-            throw new Error(
-                'regenerateVoices not implemented in langgraph mode'
-            );
-        },
-        requestFullState: (runId) => ({ runId, status: 'not_found' }),
-        start: async () => {
-            throw new Error(
-                'langgraph 模式 controller 留待 commit 11 重写,先跑 demo 模式'
-            );
-        }
-    };
+export const registerVideoAgentIpc = ({
+    controller,
+    ipcMain
+}: {
+    controller: VideoAgentIpcController;
+    ipcMain: VideoAgentIpcMain;
+}) => {
+    const emitToRenderer =
+        (event: VideoAgentIpcEvent): VideoAgentEventEmitter =>
+        (agentEvent) => {
+            event.sender.send(videoAgentIpcChannels.event, agentEvent);
+        };
+
+    ipcMain.handle(videoAgentIpcChannels.start, (event, input) =>
+        controller.start(input as VideoAgentStartInput, emitToRenderer(event))
+    );
+    ipcMain.handle(videoAgentIpcChannels.approve, (event, input) =>
+        controller.approve(
+            input as VideoAgentApprovalInput,
+            emitToRenderer(event)
+        )
+    );
+    ipcMain.handle(videoAgentIpcChannels.cancel, (event, input) =>
+        controller.cancel(input as VideoAgentCancelInput, emitToRenderer(event))
+    );
+    ipcMain.handle(videoAgentIpcChannels.regenerateScene, (event, input) =>
+        controller.regenerateScene(
+            input as VideoAgentRegenerateSceneInput,
+            emitToRenderer(event)
+        )
+    );
+    ipcMain.handle(videoAgentIpcChannels.regenerateVoices, (event, input) =>
+        controller.regenerateVoices(
+            input as VideoAgentRegenerateVoicesInput,
+            emitToRenderer(event)
+        )
+    );
 };

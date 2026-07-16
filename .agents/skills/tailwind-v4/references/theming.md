@@ -1,3 +1,4 @@
+- All rights reserved.
 # Theming & Design Tokens
 
 ## Contents

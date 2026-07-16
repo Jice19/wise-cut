@@ -2,6 +2,7 @@
 name: electron-forge-code-signing
 description: Code signing with Electron Forge — macOS and Windows; why sign, where to configure.
 ---
+- All rights reserved.
 
 # Code signing
 
@@ -20,7 +21,5 @@ Code signing certifies that an app was created by you and reduces OS security wa
 
 Signing is a prerequisite for [auto-update](references/advanced-auto-update.md) on macOS.
 
-<!--
 Source references:
 - https://github.com/electron-forge/electron-forge-docs/blob/main/guides/code-signing/README.md
--->

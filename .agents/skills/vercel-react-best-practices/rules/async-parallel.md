@@ -4,6 +4,7 @@ impact: CRITICAL
 impactDescription: 2-10× improvement
 tags: async, parallelization, promises, waterfalls
 ---
+- All rights reserved.
 
 ## Promise.all() for Independent Operations
 

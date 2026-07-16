@@ -4,6 +4,7 @@ impact: HIGH
 impactDescription: prevents remount on every render
 tags: rerender, components, remount, performance
 ---
+- All rights reserved.
 
 ## Don't Define Components Inside Components
 

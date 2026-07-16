@@ -4,6 +4,7 @@ impact: HIGH
 impactDescription: prevents concurrency bugs and request data leaks
 tags: server, rsc, ssr, concurrency, security, state
 ---
+- All rights reserved.
 
 ## Avoid Shared Module State for Request Data
 

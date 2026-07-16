@@ -1,3 +1,4 @@
+- All rights reserved.
 # React Best Practices
 
 A structured repository for creating and maintaining React Best Practices optimized for agents and LLMs.

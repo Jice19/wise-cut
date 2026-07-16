@@ -4,6 +4,7 @@ impact: LOW
 impactDescription: single listener for N components
 tags: client, swr, event-listeners, subscription
 ---
+- All rights reserved.
 
 ## Deduplicate Global Event Listeners
 

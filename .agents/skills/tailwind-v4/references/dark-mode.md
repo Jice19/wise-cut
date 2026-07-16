@@ -1,3 +1,4 @@
+- All rights reserved.
 # Dark Mode Strategies
 
 ## Contents

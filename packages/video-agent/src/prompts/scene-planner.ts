@@ -1,50 +1,45 @@
-/**
- * 分镜规划 prompt —— plan §3 plan_scenes 节点。
- *
- * 输入:CreativeBrief + 可用 AssetAnalysis 列表
- * 输出:Scene[] (3-5 个分镜,每个含 narration / visualBrief / subtitleLines)
- *
- * 关键约束:
- *   - 3-5 个分镜
- *   - 每个分镜 narration ≤80 字(便于 TTS)
- *   - subtitleLines 每条 ≤25 字(plan §15.2 D2 TTS 可朗读性)
- *   - 总时长 30-60 秒
- *   - 严格 JSON 输出
- */
+/* */
+import { z } from 'zod';
 
-export const SCENE_PLANNER_SYSTEM_PROMPT = `你是短视频分镜规划师。根据创意简报和素材元数据,产出 3-5 个分镜,严格遵守以下规则:
+export const PlannedSceneSchema = z.object({
+    durationMs: z.number().int().positive(),
+    goal: z.string().min(1),
+    id: z.string().min(1),
+    index: z.number().int().positive(),
+    script: z.string().min(1),
+    subtitleLines: z.array(z.string().min(1)).min(1),
+    title: z.string().min(1),
+    visualIntent: z.string().min(1)
+});
 
-1. 只输出 JSON,不要 Markdown 代码块包裹,不要任何解释性文字
-2. **绝对禁止输出 thinking 块、think 标签、或任何形式的 reasoning preamble** —— 直接从 { 开始输出 JSON
-3. 严格 JSON 语法:用双引号、不允许尾随逗号
-4. 输出 schema:
-{
-  "scenes": [
-    {
-      "sceneId": "s-1",
-      "order": 0,
-      "startMs": 0,
-      "endMs": 5000,
-      "narration": "≤80 字,中文,TTS 要念的旁白",
-      "visualBrief": "≤60 字,中文,描述要匹配的画面内容(给 match_assets 用)",
-      "subtitleLines": [
-        { "startMs": 0, "endMs": 2500, "text": "≤25 字" }
-      ]
-    }
-  ]
-}
-4. 总时长 30-60 秒,均匀分配给每个分镜
-5. subtitleLines 单条 ≤25 字,标点合理
-6. sceneId 格式 s-1 / s-2 / s-3 ...,order 从 0 开始递增
-7. startMs / endMs 严格递增且 endMs > startMs
-8. narration / visualBrief 不能为空,信息不足时合理推测`;
+export const ScenePlanResponseSchema = z.object({
+    scenes: z.array(PlannedSceneSchema).min(1)
+});
 
-export const SCENE_PLANNER_USER_PROMPT_TEMPLATE = `<brief>
-{briefJson}
-</brief>
+export type PlannedScene = z.infer<typeof PlannedSceneSchema>;
 
-<assets>
-{assetsJson}
-</assets>
+export type ScenePlanInput = {
+    brief: unknown;
+    targetSceneCount?: number;
+};
 
-请根据以上信息生成 3-5 个分镜。`;
+export const buildScenePlannerPrompt = ({
+    brief,
+    targetSceneCount
+}: ScenePlanInput): string =>
+    [
+        '你是智剪的视频分镜规划智能体。',
+        '根据创意 brief 输出严格 JSON，不要包含 Markdown。',
+        'JSON 字段：scenes，每个分镜包含 id, index, title, goal, script, subtitleLines, visualIntent, durationMs。',
+        '分镜数量不要固定，要根据内容密度、节奏和可匹配素材自然决定；宁可少而清晰，不要为了凑数量拆碎信息。',
+        targetSceneCount
+            ? `参考分镜数量：${targetSceneCount}，这只是弱参考，不是硬性数量。`
+            : '没有固定目标分镜数量，请自行判断需要多少个分镜。',
+        'subtitleLines 必须是可以直接朗读给 TTS 的口播稿，每一项都是自然说给观众听的一句话或短句。',
+        '每个分镜通常保留 1 到 3 条 subtitleLines，不要把太多句子塞进同一个分镜。',
+        'subtitleLines 必须按自然句号、问号、感叹号、分号或语义停顿断开，不要按固定字数截断句子。',
+        '不要写分镜说明、镜头动作、标题、编号、冒号式结构，也不要输出“开场：”“镜头1：”“画面：”这类规划标签。',
+        'script 必须等于 subtitleLines 按换行拼接，确保左侧文稿字幕展示、字幕文本和 TTS 输入完全一致。',
+        '每个分镜对应一个视频画面，但可以包含多条 subtitleLines；每条 subtitleLines 后续会生成一段独立配音。',
+        `创意 brief：${JSON.stringify(brief)}`
+    ].join('\n');

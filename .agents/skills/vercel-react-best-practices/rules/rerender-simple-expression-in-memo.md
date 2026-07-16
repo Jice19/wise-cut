@@ -4,6 +4,7 @@ impact: LOW-MEDIUM
 impactDescription: wasted computation on every render
 tags: rerender, useMemo, optimization
 ---
+- All rights reserved.
 
 ## Do not wrap a simple expression with a primitive result type in useMemo
 

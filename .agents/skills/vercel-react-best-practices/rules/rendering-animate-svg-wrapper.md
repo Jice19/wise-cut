@@ -4,6 +4,7 @@ impact: LOW
 impactDescription: enables hardware acceleration
 tags: rendering, svg, css, animation, performance
 ---
+- All rights reserved.
 
 ## Animate SVG Wrapper Instead of SVG Element
 

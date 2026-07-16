@@ -2,6 +2,7 @@
 name: electron-forge-configuration
 description: Electron Forge config — forge.config.js, packagerConfig, makers, publishers, plugins, hooks, buildIdentifier.
 ---
+- All rights reserved.
 
 # Configuration
 
@@ -74,7 +75,5 @@ module.exports = {
 - Packager options: [Electron Packager API](https://electron.github.io/packager/main/interfaces/Options.html). Rebuild options: [Electron Rebuild](https://github.com/electron/electron-rebuild#how-can-i-integrate-this-into-grunt--gulp--whatever).
 - Use CLI flags (e.g. `--arch`, `--platform`) to set target arch/platform for Package/Make/Publish.
 
-<!--
 Source references:
 - https://github.com/electron-forge/electron-forge-docs/blob/main/config/configuration.md
--->

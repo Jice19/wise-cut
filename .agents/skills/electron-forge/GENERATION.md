@@ -1,3 +1,4 @@
+- All rights reserved.
 # Generation Info
 
 - **Source:** `sources/electron-forge` (electron-forge-docs)

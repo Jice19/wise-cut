@@ -4,6 +4,7 @@ impact: CRITICAL
 impactDescription: eliminates server-side waterfalls
 tags: server, rsc, parallel-fetching, promise-chaining
 ---
+- All rights reserved.
 
 ## Parallel Nested Data Fetching
 

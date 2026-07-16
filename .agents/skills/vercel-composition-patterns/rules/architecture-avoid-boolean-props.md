@@ -4,6 +4,7 @@ impact: CRITICAL
 impactDescription: prevents unmaintainable component variants
 tags: composition, props, architecture
 ---
+- All rights reserved.
 
 ## Avoid Boolean Prop Proliferation
 

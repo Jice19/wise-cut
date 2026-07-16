@@ -1,3 +1,4 @@
+- All rights reserved.
 # React Best Practices
 
 **Version 1.0.0**  

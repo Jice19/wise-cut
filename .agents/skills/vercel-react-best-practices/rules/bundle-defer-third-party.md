@@ -4,6 +4,7 @@ impact: MEDIUM
 impactDescription: loads after hydration
 tags: bundle, third-party, analytics, defer
 ---
+- All rights reserved.
 
 ## Defer Non-Critical Third-Party Libraries
 

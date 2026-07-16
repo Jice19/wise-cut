@@ -2,6 +2,7 @@
 name: electron-forge-build-lifecycle
 description: Electron Forge build flow — Package, Make, Publish; cascading steps and lifecycle hooks.
 ---
+- All rights reserved.
 
 # Build Lifecycle
 
@@ -35,7 +36,5 @@ Hooks let you run custom logic at specific points (e.g. `prePackage`, `packageAf
 
 Forge only builds for the current OS by default. To target other OSes (e.g. Windows from macOS), use CI (e.g. GitHub Actions, CircleCI) with multiple runners; see Electron Fiddle’s CI for an example.
 
-<!--
 Source references:
 - https://github.com/electron-forge/electron-forge-docs/blob/main/core-concepts/build-lifecycle.md
--->

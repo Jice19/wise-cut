@@ -4,6 +4,7 @@ impact: MEDIUM
 impactDescription: deduplicates within request
 tags: server, cache, react-cache, deduplication
 ---
+- All rights reserved.
 
 ## Per-Request Deduplication with React.cache()
 

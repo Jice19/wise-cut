@@ -4,6 +4,7 @@ impact: LOW
 impactDescription: prevents effect re-runs
 tags: advanced, hooks, useEffectEvent, refs, optimization
 ---
+- All rights reserved.
 
 ## useEffectEvent for Stable Callback Refs
 

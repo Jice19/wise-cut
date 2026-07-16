@@ -4,6 +4,7 @@ impact: LOW
 impactDescription: O(n) instead of O(n log n)
 tags: javascript, arrays, performance, sorting, algorithms
 ---
+- All rights reserved.
 
 ## Use Loop for Min/Max Instead of Sort
 

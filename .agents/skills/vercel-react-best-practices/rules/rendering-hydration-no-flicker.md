@@ -4,6 +4,7 @@ impact: MEDIUM
 impactDescription: avoids visual flicker and hydration errors
 tags: rendering, ssr, hydration, localStorage, flicker
 ---
+- All rights reserved.
 
 ## Prevent Hydration Mismatch Without Flickering
 

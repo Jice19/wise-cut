@@ -2,6 +2,7 @@
 name: electron-forge-plugins-overview
 description: Electron Forge plugins — bundler (Webpack, Vite) and utility plugins; plugin API.
 ---
+- All rights reserved.
 
 # Plugins overview
 
@@ -32,7 +33,5 @@ plugins: [
 
 To implement a custom plugin, extend the base from `@electron-forge/plugin-base` and implement `getHooks()` and/or `startLogic()`. See [advanced-extending-plugins](references/advanced-extending-plugins.md).
 
-<!--
 Source references:
 - https://github.com/electron-forge/electron-forge-docs/blob/main/config/plugins/README.md
--->

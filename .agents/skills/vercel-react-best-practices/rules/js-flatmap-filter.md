@@ -4,6 +4,7 @@ impact: LOW-MEDIUM
 impactDescription: eliminates intermediate array
 tags: javascript, arrays, flatMap, filter, performance
 ---
+- All rights reserved.
 
 ## Use flatMap to Map and Filter in One Pass
 

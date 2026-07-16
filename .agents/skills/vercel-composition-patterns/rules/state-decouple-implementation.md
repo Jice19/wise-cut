@@ -4,6 +4,7 @@ impact: MEDIUM
 impactDescription: enables swapping state implementations without changing UI
 tags: composition, state, architecture
 ---
+- All rights reserved.
 
 ## Decouple State Management from UI
 

@@ -2,6 +2,7 @@
 name: electron-forge-cli
 description: Electron Forge CLI — init, import, package, make, publish, start; flags and programmatic API.
 ---
+- All rights reserved.
 
 # CLI
 
@@ -87,7 +88,5 @@ await api.make({ skipPackage: true });
 
 See [Forge API docs](https://js.electronforge.io/classes/_electron_forge_core.ForgeAPI.html).
 
-<!--
 Source references:
 - https://github.com/electron-forge/electron-forge-docs/blob/main/cli.md
--->

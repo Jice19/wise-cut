@@ -4,6 +4,7 @@ impact: HIGH
 impactDescription: avoids accidental broad bundles and file traces
 tags: bundle, nextjs, vite, webpack, rollup, esbuild, path
 ---
+- All rights reserved.
 
 ## Prefer Statically Analyzable Paths
 

@@ -1,3 +1,4 @@
+- All rights reserved.
 # Setup & Installation
 
 ## Contents

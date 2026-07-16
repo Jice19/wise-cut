@@ -1,4 +1,4 @@
-/* */
+
 import { useEffect, useRef } from 'react';
 
 import type {
@@ -9,6 +9,7 @@ import type {
     PreviewSubtitleCue,
     PreviewVoiceCue
 } from '../types/editor-screen';
+
 import { Icon } from './Icon';
 
 const formatTwoDigits = (value: number) => String(value).padStart(2, '0');
@@ -229,7 +230,7 @@ const PreviewToolButton = ({
         <button
             type="button"
             aria-label={label}
-            className="grid h-9 w-9 place-items-center rounded-full bg-[#FAF9F7] text-[#57534E]"
+            className="grid h-9 w-9 place-items-center rounded-full bg-[#1A1D22] text-[#A9AFBA]"
         >
             <Icon name={icon} className="h-[18px] w-[18px]" />
         </button>
@@ -249,14 +250,14 @@ const PreviewControlBar = ({
 }) => {
     return (
         <div className="grid h-[58px] w-full grid-cols-[1fr_40px_1fr] items-end">
-            <span className="font-['Geist_Mono'] text-sm font-semibold text-[#57534E]">
+            <span className="font-['Geist_Mono'] text-sm font-semibold text-[#A9AFBA]">
                 {formatPreviewTimecode({ currentTimeMs, durationMs })}
             </span>
             <button
                 type="button"
                 aria-label={isPlaying ? '暂停预览' : '播放预览'}
                 onClick={onTogglePlayback}
-                className="grid h-10 w-10 place-items-center rounded-full bg-[#D97706] text-white"
+                className="grid h-10 w-10 place-items-center rounded-full bg-[#F05F73] text-white"
             >
                 <Icon name={isPlaying ? 'pause' : 'play'} className="h-6 w-6" />
             </button>
@@ -434,7 +435,7 @@ export const PreviewPanel = ({
 
     return (
         <section
-            className="grid min-h-0 grid-rows-[minmax(0,1fr)_58px] gap-2 border-r border-[#E7E5E0] bg-[#FAF9F7] p-[16px_16px_8px]"
+            className="grid min-h-0 grid-rows-[minmax(0,1fr)_58px] gap-2 border-r border-[#2A2F38] bg-[#101116] p-[16px_16px_8px]"
             aria-label="视频预览"
         >
             <div className="relative mx-auto h-full max-h-[567px] min-h-[300px] w-full max-w-[1162px] self-end overflow-hidden rounded-xl bg-[radial-gradient(circle_at_50%_42%,#1A2430_0%,#080B10_58%,#050609_100%)] shadow-[0_4px_12px_rgba(0,0,0,0.35)]">

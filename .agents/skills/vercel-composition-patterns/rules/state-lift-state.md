@@ -4,6 +4,7 @@ impact: HIGH
 impactDescription: enables state sharing outside component boundaries
 tags: composition, state, context, providers
 ---
+- All rights reserved.
 
 ## Lift State into Provider Components
 

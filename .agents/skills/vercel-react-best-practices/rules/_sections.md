@@ -1,3 +1,4 @@
+- All rights reserved.
 # Sections
 
 This file defines all sections, their ordering, impact levels, and descriptions.

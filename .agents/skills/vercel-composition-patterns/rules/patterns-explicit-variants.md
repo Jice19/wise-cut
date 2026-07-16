@@ -4,6 +4,7 @@ impact: MEDIUM
 impactDescription: self-documenting code, no hidden conditionals
 tags: composition, variants, architecture
 ---
+- All rights reserved.
 
 ## Create Explicit Component Variants
 

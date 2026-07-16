@@ -4,6 +4,7 @@ impact: LOW-MEDIUM
 impactDescription: avoids noisy hydration warnings for known differences
 tags: rendering, hydration, ssr, nextjs
 ---
+- All rights reserved.
 
 ## Suppress Expected Hydration Mismatches
 

@@ -4,6 +4,7 @@ impact: MEDIUM
 impactDescription: faster response times
 tags: server, async, logging, analytics, side-effects
 ---
+- All rights reserved.
 
 ## Use after() for Non-Blocking Operations
 

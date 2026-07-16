@@ -4,6 +4,7 @@ impact: CRITICAL
 impactDescription: 200-800ms import cost, slow builds
 tags: bundle, imports, tree-shaking, barrel-files, performance
 ---
+- All rights reserved.
 
 ## Avoid Barrel File Imports
 

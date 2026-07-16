@@ -4,6 +4,7 @@ impact: MEDIUM
 impactDescription: prevents forced synchronous layouts and reduces performance bottlenecks
 tags: javascript, dom, css, performance, reflow, layout-thrashing
 ---
+- All rights reserved.
 
 ## Avoid Layout Thrashing
 

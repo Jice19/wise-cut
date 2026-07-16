@@ -2,6 +2,7 @@
 name: electron-forge-writing-plugins
 description: Writing Electron Forge plugins — PluginBase, getHooks, startLogic.
 ---
+- All rights reserved.
 
 # Writing plugins
 
@@ -44,7 +45,5 @@ async startLogic(opts) {
 
 `StartOptions` is documented in the [API](https://js.electronforge.io/interfaces/_electron_forge_shared_types.StartOptions.html).
 
-<!--
 Source references:
 - https://github.com/electron-forge/electron-forge-docs/blob/main/advanced/extending-electron-forge/writing-plugins.md
--->

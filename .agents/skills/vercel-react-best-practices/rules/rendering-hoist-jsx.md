@@ -4,6 +4,7 @@ impact: LOW
 impactDescription: avoids re-creation
 tags: rendering, jsx, static, optimization
 ---
+- All rights reserved.
 
 ## Hoist Static JSX Elements
 

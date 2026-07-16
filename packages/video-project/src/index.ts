@@ -1,64 +1,44 @@
-/**
- * @miaoma-magicut/video-project — 公开 schema / 类型入口。
- */
-
-export { VIDEO_PROJECT_PACKAGE_NAME } from './package-name';
+/* */
+export { sampleVideoProject } from './fixtures/sample-project';
 export {
-    type AgentConversationBlock,
     AgentConversationBlockSchema,
-    type AgentConversationMessage,
     AgentConversationMessageSchema,
-    type AiRunMetadata,
     AiRunMetadataSchema,
-    type AssetAnalysis,
-    AssetAnalysisSchema,
-    type AssetFrameAnalysis,
-    AssetFrameAnalysisSchema,
-    type AssetMatchResult,
-    AssetMatchResultSchema,
-    type CanvasConfig,
     CanvasConfigSchema,
-    type CanvasSafeArea,
-    CanvasSafeAreaSchema,
-    type CreativeBrief,
-    CreativeBriefSchema,
-    type ExtractedKeyframe,
-    ExtractedKeyframeSchema,
-    type FrameDescription,
-    FrameDescriptionSchema,
-    type MediaMetadata,
-    MediaMetadataSchema,
-    type MusicClip,
     MusicClipSchema,
-    type ProjectAsset,
-    type ProjectAssets,
-    ProjectAssetSchema,
     ProjectAssetsSchema,
-    type ProjectMetadata,
     ProjectMetadataSchema,
-    type RenderConfig,
     RenderConfigSchema,
-    type RenderQuality,
-    RenderQualitySchema,
-    type Scene,
     SceneSchema,
-    type SubtitleClip,
     SubtitleClipSchema,
-    type SubtitleLine,
-    SubtitleLineSchema,
-    type TimelineClip,
     TimelineClipSchema,
-    type TimelineTrack,
-    type TimelineTrackKind,
     TimelineTrackKindSchema,
     TimelineTrackSchema,
-    VIDEO_PROJECT_SCHEMA_VERSION,
-    type VideoClip,
     VideoClipSchema,
-    type VideoProject,
     VideoProjectSchema,
-    type VoiceClip,
-    VoiceClipSchema,
-    type VoiceSynthesisResult,
-    VoiceSynthesisResultSchema
+    VoiceClipSchema
 } from './schema';
+export type {
+    AgentConversationBlock,
+    AgentConversationMessage,
+    AiRunMetadata,
+    CanvasConfig,
+    MusicClip,
+    ProjectAssets,
+    ProjectMetadata,
+    RenderConfig,
+    Scene,
+    SubtitleClip,
+    TimelineClip,
+    TimelineTrack,
+    TimelineTrackKind,
+    VideoClip,
+    VideoProject,
+    VideoProjectValidationResult,
+    VoiceClip
+} from './types';
+export {
+    assertVideoProject,
+    validateVideoProject,
+    VideoProjectValidationError
+} from './validation';

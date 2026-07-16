@@ -2,6 +2,7 @@
 name: electron-forge-writing-publishers
 description: Writing Electron Forge publishers — PublisherBase, publish.
 ---
+- All rights reserved.
 
 # Writing publishers
 
@@ -30,7 +31,5 @@ export default class MyPublisher extends PublisherBase {
 
 See [PublisherBase](https://js.electronforge.io/modules/_electron_forge_publisher_base.html) for the full API.
 
-<!--
 Source references:
 - https://github.com/electron-forge/electron-forge-docs/blob/main/advanced/extending-electron-forge/writing-publishers.md
--->

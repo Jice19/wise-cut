@@ -4,6 +4,7 @@ impact: LOW
 impactDescription: minimizes effect re-runs
 tags: rerender, useEffect, dependencies, optimization
 ---
+- All rights reserved.
 
 ## Narrow Effect Dependencies
 

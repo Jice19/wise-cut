@@ -2,6 +2,7 @@
 name: electron-forge-writing-templates
 description: Writing Electron Forge templates — ForgeTemplate interface, requiredForgeVersion, initializeTemplate.
 ---
+- All rights reserved.
 
 # Writing templates
 
@@ -24,7 +25,5 @@ npx electron-forge init --template=my-forge-template
 
 For full details on the interface and `initializeTemplate` signature, see the shared types package and the [writing-templates](https://github.com/electron-forge/electron-forge-docs/blob/main/advanced/extending-electron-forge/writing-templates.md) doc.
 
-<!--
 Source references:
 - https://github.com/electron-forge/electron-forge-docs/blob/main/advanced/extending-electron-forge/writing-templates.md
--->

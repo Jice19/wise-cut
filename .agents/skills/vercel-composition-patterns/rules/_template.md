@@ -4,6 +4,7 @@ impact: MEDIUM
 impactDescription: brief description of impact
 tags: composition, components
 ---
+- All rights reserved.
 
 ## Rule Title Here
 

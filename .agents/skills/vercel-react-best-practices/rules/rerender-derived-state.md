@@ -4,6 +4,7 @@ impact: MEDIUM
 impactDescription: reduces re-render frequency
 tags: rerender, derived-state, media-query, optimization
 ---
+- All rights reserved.
 
 ## Subscribe to Derived State
 

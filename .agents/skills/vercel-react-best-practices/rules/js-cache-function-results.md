@@ -4,6 +4,7 @@ impact: MEDIUM
 impactDescription: avoid redundant computation
 tags: javascript, cache, memoization, performance
 ---
+- All rights reserved.
 
 ## Cache Repeated Function Calls
 

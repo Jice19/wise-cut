@@ -4,6 +4,7 @@ impact: LOW-MEDIUM
 impactDescription: avoids unnecessary computation
 tags: javascript, functions, optimization, early-return
 ---
+- All rights reserved.
 
 ## Early Return from Functions
 

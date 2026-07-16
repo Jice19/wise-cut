@@ -2,6 +2,7 @@
 name: electron-forge-plugin-webpack
 description: Webpack plugin for Electron Forge — main/renderer config, entry points, magic globals, HMR, native modules.
 ---
+- All rights reserved.
 
 # Webpack plugin
 
@@ -56,7 +57,5 @@ To use the preload path in a renderer (e.g. for `<webview>`), expose it via IPC 
 - **Virtual routing**: Use a router that doesn’t rely on browser history (e.g. MemoryRouter in React) because production loads from the filesystem.
 - **Hot reload caching**: With Webpack 5 cache, call `relocateLoader.initAssetCache(compilation, outputAssetBase)` in the build.
 
-<!--
 Source references:
 - https://github.com/electron-forge/electron-forge-docs/blob/main/config/plugins/webpack.md
--->

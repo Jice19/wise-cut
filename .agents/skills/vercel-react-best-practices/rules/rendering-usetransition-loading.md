@@ -4,6 +4,7 @@ impact: LOW
 impactDescription: reduces re-renders and improves code clarity
 tags: rendering, transitions, useTransition, loading, state
 ---
+- All rights reserved.
 
 ## Use useTransition Over Manual Loading States
 

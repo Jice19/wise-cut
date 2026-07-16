@@ -4,6 +4,7 @@ impact: HIGH
 impactDescription: eliminates render-blocking
 tags: rendering, script, defer, async, performance
 ---
+- All rights reserved.
 
 ## Use defer or async on Script Tags
 

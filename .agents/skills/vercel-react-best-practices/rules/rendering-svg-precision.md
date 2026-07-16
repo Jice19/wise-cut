@@ -4,6 +4,7 @@ impact: LOW
 impactDescription: reduces file size
 tags: rendering, svg, optimization, svgo
 ---
+- All rights reserved.
 
 ## Optimize SVG Precision
 

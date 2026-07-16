@@ -4,6 +4,7 @@ impact: LOW-MEDIUM
 impactDescription: O(n) to O(1)
 tags: javascript, set, map, data-structures, performance
 ---
+- All rights reserved.
 
 ## Use Set/Map for O(1) Lookups
 

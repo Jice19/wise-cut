@@ -1,290 +1,104 @@
-import { join } from 'node:path';
 
-import type { VideoProject } from '@miaoma-magicut/video-project';
-import { config as loadEnv } from 'dotenv';
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import started from 'electron-squirrel-startup';
+import path from 'node:path';
 
-// commit 20.1:把仓库根 .env / .env.local 装到 process.env(main 进程能看到
-// ARK_API_KEY / VOLCENGINE_TTS_API_KEY 等)。dotenv 不会覆盖已存在的 env var,
-// 只有 process.env 没这个 key 时才装。__dirname 在 vite build 后是
-// apps/desktop/.vite/build/,向上 4 层才是仓库根(monorepo)。
-const loadEnvFrom = (rel: string): void => {
-    loadEnv({ path: join(__dirname, '..', '..', '..', '..', rel) });
-};
-loadEnvFrom('.env'); // 仓库根,gitignore 不 ignore
-loadEnvFrom('.env.local'); // 仓库根,gitignore ignore 但允许存在
-loadEnv({ path: join(__dirname, '..', '..', '.env.local') }); // apps/desktop
-
-// commit 20.2:诊断 — dotenv 在 macOS GUI 启动 cwd 有时会变,确认装入。
-// eslint-disable-next-line no-console
-console.log('[main] env loaded', {
-    API_KEY: Boolean(process.env['API_KEY']),
-    ARK_API_KEY: Boolean(process.env['ARK_API_KEY']),
-    BASE_URL: Boolean(process.env['BASE_URL']),
-    VOLCENGINE_TTS_API_KEY: Boolean(process.env['VOLCENGINE_TTS_API_KEY']),
-    VOLCENGINE_TTS_APP_ID: Boolean(process.env['VOLCENGINE_TTS_APP_ID'])
-});
-
-import { IPC } from '../shared/ipc';
-import { createExportPipeline } from './export-pipeline';
-import { createVideoAgentController } from './video-agent-controller-factory';
+import { registerCustomVoiceIpc } from './custom-voice-ipc';
+import { createCustomVoiceLibrary } from './custom-voice-library';
 import {
-    registerVideoAgentIpc,
-    type VideoAgentController
+    registerMediaProtocol,
+    registerMediaProtocolSchemePrivileges
+} from './media-protocol';
+import {
+    createLangGraphVideoAgentController,
+    registerVideoAgentIpc
 } from './video-agent-ipc';
+import { registerVideoExportIpc } from './video-export-ipc';
+import {
+    createVideoExportRenderer,
+    selectVideoExportOutputPath
+} from './video-export-service';
+import {
+    createDefaultVideoProjectStore,
+    registerVideoProjectIpc
+} from './video-project-ipc';
+import { createMainWindowOptions } from './window-options';
 
-const waitForServer = async (
-    url: string,
-    retries = 60,
-    intervalMs = 500
-): Promise<void> => {
-    // 最长 30 秒窗口，匹配 vite dev server 冷启动时长（首次 esbuild + 依赖预构建）。
-    for (let i = 0; i < retries; i += 1) {
-        try {
-            await fetch(url);
-            return;
-        } catch {
-            await new Promise((r) => setTimeout(r, intervalMs));
-        }
-    }
-    throw new Error(`Vite dev server ${url} did not become reachable`);
-};
+if (started) {
+    app.quit();
+}
 
-const loadDevServerWithRetry = async (
-    win: BrowserWindow,
-    url: string
-): Promise<void> => {
-    try {
-        await waitForServer(url);
-        await win.loadURL(url);
-    } catch (err) {
-        // eslint-disable-next-line no-console
-        console.error('[main] cannot reach dev server', url, err);
-    }
-};
+registerMediaProtocolSchemePrivileges();
 
-const createMainWindow = (): BrowserWindow => {
-    const win = new BrowserWindow({
-        title: 'AI智能剪辑平台',
-        width: 1480,
-        height: 940,
-        minWidth: 1024,
-        minHeight: 640,
-        show: false,
-        autoHideMenuBar: false,
-        // macOS 隐藏系统 native title bar —— 否则它会叠加在 React TopBar
-        // 之上形成两条。traffic-light 由 React 端 pl-20 避开。
-        // 'hiddenInset'：保留 inset 飘带（仅有 28px 顶部）但隐藏文字
-        // 'hidden'：完全移除顶部条 —— 但 traffic-light 也会被隐藏，需要
-        //   走 setWindowButtonPosition / 自绘按钮。优先选 hiddenInset 实用。
-        // Win/Linux 不识别此字段，原生标题栏仍然存在。
-        ...(process.platform === 'darwin'
-            ? {
-                  titleBarStyle: 'hiddenInset' as const,
-                  trafficLightPosition: { x: 12, y: 14 } as {
-                      x: number;
-                      y: number;
-                  }
-              }
-            : {}),
-        webPreferences: {
-            preload: `${__dirname}/preload.js`,
-            contextIsolation: true,
-            nodeIntegration: false,
-            sandbox: false
-        }
-    });
-    // 诊断：每次主进程启动时打印当前 title bar 风格，便于排查双 topbar。
-    // eslint-disable-next-line no-console
-    console.log(
-        '[main] BrowserWindow created',
-        `platform=${process.platform}`,
-        'titleBarStyle=hiddenInset (mac) or default (others)'
+const createWindow = () => {
+    const mainWindow = new BrowserWindow(
+        createMainWindowOptions({
+            preloadPath: path.join(__dirname, 'preload.js')
+        })
     );
 
-    // 加载渲染层（开发态由 vite dev server 提供，生产态读本地 .vite/build/renderer/...html）
-    // MAIN_WINDOW_VITE_DEV_SERVER_URL / MAIN_WINDOW_VITE_NAME 由 @electron-forge/plugin-vite
-    // 通过 vite define 在主进程构建期替换为字符串字面量，无需 process.env 包裹。
     if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
-        // vite define 注入的就是字符串字面量 'http://localhost:5173/'，
-        // 但 Electron 启动早于 vite dev server 监听端口。重试直到成功，避免冷启动闪烁。
-        void loadDevServerWithRetry(win, MAIN_WINDOW_VITE_DEV_SERVER_URL);
-    } else {
-        void win.loadFile(
-            `${__dirname}/../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`
-        );
+        mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
+        return;
     }
 
-    win.once('ready-to-show', () => {
-        win.show();
-        // 开发态自动打开 DevTools，方便观察 renderer 控制台与 IPC 数据流。
-        if (!app.isPackaged) win.webContents.openDevTools({ mode: 'detach' });
-    });
-
-    return win;
-};
-
-const registerIpcHandlers = (controller: VideoAgentController): void => {
-    ipcMain.handle(IPC.APP_GET_VERSION, () => app.getVersion());
-    ipcMain.handle(IPC.APP_GET_PLATFORM, () => process.platform);
-
-    // 原生选目录对话框 —— commit 9 暴露给 renderer 让 UI 选素材目录
-    ipcMain.handle(
-        IPC.DIALOG_SELECT_DIRECTORY,
-        async (event, input: { title?: string }) => {
-            const { dialog } = await import('electron');
-            const win = BrowserWindow.fromWebContents(event.sender);
-            const result = await dialog.showOpenDialog(win ?? undefined!, {
-                properties: ['openDirectory', 'createDirectory'],
-                title: input?.title ?? '选择素材目录'
-            });
-            if (result.canceled || result.filePaths.length === 0) return null;
-            return result.filePaths[0];
-        }
+    mainWindow.loadFile(
+        path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`)
     );
-
-    // video-project:read —— 从 userData/video-projects/ 读 + schema 校验
-    ipcMain.handle(
-        IPC.VIDEO_PROJECT_READ,
-        async (_event, input: { projectId: string }) => {
-            const { readFile } = await import('node:fs/promises');
-            const { join } = await import('node:path');
-            const { VideoProjectSchema } = await import(
-                '@miaoma-magicut/video-project'
-            );
-            const path = join(
-                app.getPath('userData'),
-                'video-projects',
-                `${input.projectId}.json`
-            );
-            try {
-                const content = await readFile(path, 'utf-8');
-                return VideoProjectSchema.parse(JSON.parse(content));
-            } catch (error) {
-                throw new Error(
-                    `readProject ${input.projectId} failed: ${(error as Error).message}`
-                );
-            }
-        }
-    );
-
-    // video-project:list —— 扫 userData/video-projects/*.json
-    ipcMain.handle(IPC.VIDEO_PROJECT_LIST, async () => {
-        const { readdir, readFile } = await import('node:fs/promises');
-        const { join } = await import('node:path');
-        const dir = join(app.getPath('userData'), 'video-projects');
-        try {
-            const entries = await readdir(dir);
-            const projects = await Promise.all(
-                entries
-                    .filter((e) => e.endsWith('.json'))
-                    .map(async (file) => {
-                        try {
-                            const content = await readFile(
-                                join(dir, file),
-                                'utf-8'
-                            );
-                            const json = JSON.parse(content);
-                            return {
-                                projectId:
-                                    json.metadata?.projectId ??
-                                    file.replace('.json', ''),
-                                title: json.metadata?.title ?? 'untitled',
-                                createdAt: json.metadata?.createdAt,
-                                updatedAt: json.metadata?.updatedAt,
-                                durationMs: json.canvas?.durationMs
-                            };
-                        } catch {
-                            return null;
-                        }
-                    })
-            );
-            return projects
-                .filter((p): p is NonNullable<typeof p> => p !== null)
-                .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
-        } catch {
-            return [];
-        }
-    });
-
-    ipcMain.handle(IPC.WINDOW_MINIMIZE, (event) => {
-        BrowserWindow.fromWebContents(event.sender)?.minimize();
-    });
-    ipcMain.handle(IPC.WINDOW_MAXIMIZE, (event) => {
-        const w = BrowserWindow.fromWebContents(event.sender);
-        if (!w) return;
-        if (w.isMaximized()) w.unmaximize();
-        else w.maximize();
-    });
-    ipcMain.handle(IPC.WINDOW_CLOSE, (event) => {
-        BrowserWindow.fromWebContents(event.sender)?.close();
-    });
-
-    // video-agent — commit 5 接入 demo controller,把 6 个 stub
-    // 替换成真 handler(emit 事件流到 renderer)。
-    // commit 6 起 factory 切到 langgraph,这里不变。
-    registerVideoAgentIpc({ controller, handle: ipcMain.handle });
-
-    // commit 16 视频导出 pipeline
-    const exportPipeline = createExportPipeline();
-    ipcMain.handle(
-        IPC.EXPORT_START,
-        async (
-            _event,
-            input: {
-                projectId: string;
-                quality: '720p' | '1080p' | '2k' | '4k';
-            }
-        ) => {
-            const project = (await (async () => {
-                const { readFile } = await import('node:fs/promises');
-                const { join } = await import('node:path');
-                const { VideoProjectSchema } = await import(
-                    '@miaoma-magicut/video-project'
-                );
-                const path = join(
-                    app.getPath('userData'),
-                    'video-projects',
-                    `${input.projectId}.json`
-                );
-                const content = await readFile(path, 'utf-8');
-                return VideoProjectSchema.parse(JSON.parse(content));
-            })()) as VideoProject;
-            const runId = `exp-${Date.now()}-${input.projectId}`;
-            exportPipeline.startExport({
-                project,
-                quality: input.quality,
-                runId
-            });
-            return { runId };
-        }
-    );
-    ipcMain.handle(IPC.EXPORT_CANCEL, (_event, input: { runId: string }) => {
-        const cancelled = exportPipeline.cancelExport(input.runId);
-        return { cancelled };
-    });
-    exportPipeline.onProgress((event) => {
-        // commit 16 推到所有 renderer
-        BrowserWindow.getAllWindows().forEach((win) => {
-            if (!win.isDestroyed()) {
-                win.webContents.send(IPC.EXPORT_PROGRESS, event);
-            }
-        });
-    });
 };
 
 app.whenReady().then(() => {
-    const controller = createVideoAgentController();
-    registerIpcHandlers(controller);
-    createMainWindow();
+    const videoProjectStore = createDefaultVideoProjectStore();
+    const agentRunDirectory = path.join(app.getPath('userData'), 'agent-runs');
+    const customVoiceLibrary = createCustomVoiceLibrary({
+        rootDirectory: path.join(app.getPath('userData'), 'custom-voices')
+    });
+
+    registerMediaProtocol({
+        customVoiceReferenceResolver: customVoiceLibrary.resolveReferencePath,
+        store: videoProjectStore
+    });
+    registerCustomVoiceIpc({
+        dialog,
+        ipcMain,
+        library: customVoiceLibrary
+    });
+    registerVideoProjectIpc({ ipcMain, store: videoProjectStore });
+    registerVideoExportIpc({
+        createRenderer: (emitProgress) =>
+            createVideoExportRenderer({
+                app,
+                dialog,
+                emitProgress
+            }),
+        ipcMain,
+        selectOutputPath: (input) =>
+            selectVideoExportOutputPath({
+                app,
+                dialog,
+                input
+            })
+    });
+    registerVideoAgentIpc({
+        controller: createLangGraphVideoAgentController({
+            customVoiceReferenceResolver:
+                customVoiceLibrary.resolveReferencePath,
+            store: videoProjectStore,
+            voiceOutputDirectory: path.join(agentRunDirectory, 'voices')
+        }),
+        ipcMain
+    });
+    createWindow();
 
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {
-            createMainWindow();
+            createWindow();
         }
     });
 });
 
 app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') app.quit();
+    if (process.platform !== 'darwin') {
+        app.quit();
+    }
 });
