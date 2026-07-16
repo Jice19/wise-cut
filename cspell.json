@@ -1,14 +1,25 @@
 {
-    "version": "0.2",
-    "language": "en,zh-CN",
-    "words": ["miaoma", "magicut", "electron", "forge", "zh"],
+    "import": ["@cspell/dict-lorem-ipsum/cspell-ext.json"],
+    "caseSensitive": false,
+    "dictionaries": ["custom-words"],
+    "dictionaryDefinitions": [
+        {
+            "name": "custom-words",
+            "path": "./.cspell/custom-words.txt",
+            "addWords": true
+        }
+    ],
+    "useGitignore": true,
     "ignorePaths": [
-        "node_modules",
-        "dist",
-        "out",
-        "coverage",
-        ".vite",
-        ".next",
-        "pnpm-lock.yaml"
+        "**/node_modules/**",
+        "**/dist/**",
+        "**/lib/**",
+        "**/docs/**",
+        "**/stats.html",
+        "**/language/**",
+        "**/language.ts",
+        "**/package.json",
+        "**/*.md",
+        "eslint.config.js"
     ]
 }

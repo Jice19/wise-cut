@@ -1,11 +1,11 @@
+# - All rights reserved.
 packages:
-    - 'apps/*'
-    - 'packages/*'
-
+  - "apps/*"
+  - "packages/*"
 nodeLinker: hoisted
 blockExoticSubdeps: false
 allowBuilds:
-    electron: true
-    electron-winstaller: true
-    esbuild: true
-    sharp: true
+  electron: true
+  electron-winstaller: true
+  esbuild: true
+  sharp: true

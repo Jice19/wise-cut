@@ -1,80 +1,115 @@
+
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 
-import {
-    type AgentRunEvent,
-    IPC,
-    type MiaomaAPI,
-    type VideoCreationInput
-} from '../shared/ipc';
+import type { VideoProject } from '@wise-cut/video-project';
 
-// preload 脚本运行在独立 context,负责把 Electron 主进程的 IPC 能力
-// 桥接到渲染层的 window.miaomaAPI。原则:只暴露 safe API,不直接传
-// ipcRenderer 给 renderer。
-const api: MiaomaAPI = {
-    getVersion: () => ipcRenderer.invoke(IPC.APP_GET_VERSION),
-    getPlatform: () => ipcRenderer.invoke(IPC.APP_GET_PLATFORM),
-    minimize: () => ipcRenderer.invoke(IPC.WINDOW_MINIMIZE),
-    maximize: () => ipcRenderer.invoke(IPC.WINDOW_MAXIMIZE),
-    close: () => ipcRenderer.invoke(IPC.WINDOW_CLOSE),
-    onMenuCommand: (handler) => {
-        const wrapped = (_event: unknown, command: string): void =>
-            handler(command);
-        ipcRenderer.on(IPC.MENU_COMMAND, wrapped);
-        // 返回取消订阅函数,供 React useEffect 清理
-        return () => ipcRenderer.removeListener(IPC.MENU_COMMAND, wrapped);
+import type { CustomVoiceImportInput } from '../shared/custom-voice';
+import { customVoiceIpcChannels } from '../shared/custom-voice-channels';
+import type {
+    DesktopAgentRunEvent,
+    VideoAgentApprovalInput,
+    VideoAgentCancelInput,
+    VideoAgentRegenerateSceneInput,
+    VideoAgentRegenerateVoicesInput,
+    VideoAgentStartInput
+} from '../shared/video-agent';
+import { videoAgentIpcChannels } from '../shared/video-agent-channels';
+import type {
+    VideoExportProgressEvent,
+    VideoExportRenderInput,
+    VideoExportSelectOutputPathInput
+} from '../shared/video-export';
+import { videoExportIpcChannels } from '../shared/video-export-channels';
+import { videoProjectIpcChannels } from '../shared/video-project-channels';
+
+contextBridge.exposeInMainWorld('miaomaAPI', {
+    ping: async () => ({ success: true }),
+    customVoice: {
+        checkIndexTts2: async () =>
+            ipcRenderer.invoke(customVoiceIpcChannels.checkIndexTts2),
+        importReferenceAudio: async (input?: CustomVoiceImportInput) =>
+            ipcRenderer.invoke(
+                customVoiceIpcChannels.importReferenceAudio,
+                input ?? {}
+            ),
+        list: async () => ipcRenderer.invoke(customVoiceIpcChannels.list)
     },
-    selectDirectory: (input: { title?: string }) =>
-        ipcRenderer.invoke(IPC.DIALOG_SELECT_DIRECTORY, input),
+    videoExport: {
+        onProgress: (listener: (event: VideoExportProgressEvent) => void) => {
+            const subscription = (
+                _event: IpcRendererEvent,
+                event: VideoExportProgressEvent
+            ) => {
+                listener(event);
+            };
 
-    // video-agent — 5 invoke 把渲染层操作转发给主进程 controller,
-    // 1 onEvent 订阅主进程推送的 AgentRunEvent 流。
-    startVideoAgent: (input: VideoCreationInput) =>
-        ipcRenderer.invoke(IPC.VIDEO_AGENT_START, input),
-    approveVideoAgent: (input: { runId: string; approved: boolean }) =>
-        ipcRenderer.invoke(IPC.VIDEO_AGENT_APPROVE, input),
-    cancelVideoAgent: (input: { runId: string }) =>
-        ipcRenderer.invoke(IPC.VIDEO_AGENT_CANCEL, input),
-    regenerateVideoAgentScene: (input: {
-        runId: string;
-        sceneId: string;
-        feedback?: string;
-    }) => ipcRenderer.invoke(IPC.VIDEO_AGENT_REGENERATE_SCENE, input),
-    regenerateVideoAgentVoices: (input: { runId: string }) =>
-        ipcRenderer.invoke(IPC.VIDEO_AGENT_REGENERATE_VOICES, input),
-    // 主进程通过 IPC.VIDEO_AGENT_EVENT 推 AgentRunEvent,
-    // renderer 端用 switch(event.type) 分发到 reducer。
-    onVideoAgentEvent: (handler) => {
-        const wrapped = (_event: IpcRendererEvent, evt: AgentRunEvent): void =>
-            handler(evt);
-        ipcRenderer.on(IPC.VIDEO_AGENT_EVENT, wrapped);
-        return () => ipcRenderer.removeListener(IPC.VIDEO_AGENT_EVENT, wrapped);
+            ipcRenderer.on(videoExportIpcChannels.progress, subscription);
+
+            return () => {
+                ipcRenderer.removeListener(
+                    videoExportIpcChannels.progress,
+                    subscription
+                );
+            };
+        },
+        render: async (input: VideoExportRenderInput) =>
+            ipcRenderer.invoke(videoExportIpcChannels.render, input),
+        selectOutputPath: async (input: VideoExportSelectOutputPathInput) =>
+            ipcRenderer.invoke(videoExportIpcChannels.selectOutputPath, input)
     },
-    // 序号断号时由 renderer 主动调,主进程从 MemorySaver 拉完整 state。
-    requestVideoAgentFullState: (input: { runId: string }) =>
-        ipcRenderer.invoke(IPC.VIDEO_AGENT_REQUEST_FULL_STATE, input),
+    videoAgent: {
+        approve: async (input: VideoAgentApprovalInput) =>
+            ipcRenderer.invoke(videoAgentIpcChannels.approve, input),
+        cancel: async (input: VideoAgentCancelInput) =>
+            ipcRenderer.invoke(videoAgentIpcChannels.cancel, input),
+        onEvent: (listener: (event: DesktopAgentRunEvent) => void) => {
+            const subscription = (
+                _event: IpcRendererEvent,
+                event: DesktopAgentRunEvent
+            ) => {
+                listener(event);
+            };
 
-    // video-project 读写 —— commit 9.2 让 editor 消费落盘的 VideoProject
-    readVideoProject: (input: { projectId: string }) =>
-        ipcRenderer.invoke(IPC.VIDEO_PROJECT_READ, input),
-    listVideoProjects: () => ipcRenderer.invoke(IPC.VIDEO_PROJECT_LIST),
+            ipcRenderer.on(videoAgentIpcChannels.event, subscription);
 
-    // export —— commit 6/9 接 handler,preload 先 wire 占位
-    startExport: (input: {
-        projectId: string;
-        quality: '2k' | '1080p' | '4k' | '720p';
-    }) => ipcRenderer.invoke(IPC.EXPORT_START, input),
-    cancelExport: (input: { runId: string }) =>
-        ipcRenderer.invoke(IPC.EXPORT_CANCEL, input),
-    onExportProgress: (handler) => {
-        const wrapped = (
-            _event: IpcRendererEvent,
-            evt: { percent: number; phase: string; runId: string }
-        ): void => handler(evt);
-        ipcRenderer.on(IPC.EXPORT_PROGRESS, wrapped);
-        return () => ipcRenderer.removeListener(IPC.EXPORT_PROGRESS, wrapped);
+            return () => {
+                ipcRenderer.removeListener(
+                    videoAgentIpcChannels.event,
+                    subscription
+                );
+            };
+        },
+        regenerateScene: async (input: VideoAgentRegenerateSceneInput) =>
+            ipcRenderer.invoke(videoAgentIpcChannels.regenerateScene, input),
+        regenerateVoices: async (input: VideoAgentRegenerateVoicesInput) =>
+            ipcRenderer.invoke(videoAgentIpcChannels.regenerateVoices, input),
+        start: async (input: VideoAgentStartInput) =>
+            ipcRenderer.invoke(videoAgentIpcChannels.start, input)
+    },
+    videoProject: {
+        create: async (project: VideoProject) =>
+            ipcRenderer.invoke(videoProjectIpcChannels.create, { project }),
+        delete: async (projectId: string) =>
+            ipcRenderer.invoke(videoProjectIpcChannels.delete, { projectId }),
+        list: async () => ipcRenderer.invoke(videoProjectIpcChannels.list),
+        read: async (filePath: string) =>
+            ipcRenderer.invoke(videoProjectIpcChannels.read, { filePath }),
+        readById: async (projectId: string) =>
+            ipcRenderer.invoke(videoProjectIpcChannels.readById, {
+                projectId
+            }),
+        save: async ({
+            filePath,
+            project
+        }: {
+            filePath: string;
+            project: VideoProject;
+        }) =>
+            ipcRenderer.invoke(videoProjectIpcChannels.save, {
+                filePath,
+                project
+            }),
+        validate: async (project: unknown) =>
+            ipcRenderer.invoke(videoProjectIpcChannels.validate, { project })
     }
-};
-
-// 把 api 对象挂到 window.miaomaAPI,渲染层 TypeScript 通过
-// declare global { interface Window { miaomaAPI: MiaomaAPI } } 拿到类型。
-contextBridge.exposeInMainWorld('miaomaAPI', api);
+});
