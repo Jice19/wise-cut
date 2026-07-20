@@ -704,4 +704,313 @@ describe('video export', () => {
         expect(forgeSource).toContain("['darwin', 'win32']");
         expect(forgeSource).toContain('prune: false');
     });
+
+    // Regression: when a video clip's source window is shorter than its
+    // scene timeline (e.g. a 5-second source reused for a 14-second
+    // scene), ffmpeg must receive `-stream_loop -1` for that input and
+    // skip the tpad=stop_mode=clone freeze. Without this, the second
+    // half of each short-asset scene plays as a cloned last frame.
+    it('loops a short source asset instead of freezing on its last frame', async () => {
+        const { createVideoExportFfmpegCommand } = await import(
+            '../client/video-export-ffmpeg'
+        );
+        const project = structuredClone(sampleVideoProject);
+        const videoAsset = project.assets.videos[0];
+        // Sample asset is 12000ms; pretend it's only 5000ms (matching
+        // the user's 视频3.mp4). Scene is 14000ms.
+        project.assets.videos = [
+            { ...videoAsset, durationMs: 5_000, fps: 24 }
+        ];
+        project.assets.voices = [
+            { ...project.assets.voices[0], durationMs: 14_000 }
+        ];
+        project.scenes = [
+            {
+                ...project.scenes[0],
+                durationMs: 14_000,
+                voiceAssetId: project.assets.voices[0].id
+            }
+        ];
+        const videoAssetId = project.assets.videos[0].id;
+        const voiceAssetId = project.assets.voices[0].id;
+        project.tracks = [
+            {
+                clips: [
+                    {
+                        assetId: videoAssetId,
+                        crop: { height: 1080, width: 1920, x: 0, y: 0 },
+                        endMs: 14_000,
+                        id: 'video_clip_short_source',
+                        kind: 'video',
+                        sceneId: project.scenes[0].id,
+                        // source window is 5s; scene is 14s → must loop.
+                        sourceEndMs: 5_000,
+                        sourceStartMs: 0,
+                        startMs: 0,
+                        transform: { rotation: 0, scale: 1, x: 0, y: 0 }
+                    } satisfies VideoClip
+                ],
+                id: 'track_video_short',
+                kind: 'video',
+                label: '视频'
+            },
+            {
+                clips: [
+                    {
+                        assetId: voiceAssetId,
+                        endMs: 14_000,
+                        id: 'voice_clip_short',
+                        kind: 'voice',
+                        sceneId: project.scenes[0].id,
+                        startMs: 0,
+                        voicePreset: project.assets.voices[0].voice
+                    } satisfies VoiceClip
+                ],
+                id: 'track_voice_short',
+                kind: 'voice',
+                label: '配音'
+            }
+        ];
+
+        const command = createVideoExportFfmpegCommand({
+            ffmpegPath: '/repo/apps/desktop/bin/darwin/ffmpeg',
+            outputPath: '/tmp/short-source.mp4',
+            project
+        });
+
+        // Loop must be enabled for the video input (it appears between
+        // any prior -i ... and the matching -i for this asset).
+        const streamLoopIndex = command.args.indexOf('-stream_loop');
+        expect(streamLoopIndex).toBeGreaterThanOrEqual(0);
+        expect(command.args[streamLoopIndex + 1]).toBe('-1');
+        // The following -i points at the video asset.
+        expect(command.args[streamLoopIndex + 2]).toBe('-i');
+        expect(command.args[streamLoopIndex + 3]).toBe(videoAsset.path);
+
+        // tpad must NOT carry a non-zero stop_duration for the video
+        // pipeline: looping frames are real motion, so no clone-tail.
+        // The filter chain may still contain `tpad=stop_mode=clone:stop_duration=0`
+        // for the trimmed end-of-source safety, but not a multi-second freeze.
+        const tpadMatches = command.filterComplex.match(
+            /tpad=stop_mode=clone:stop_duration=([\d.]+)/g
+        ) ?? [];
+        for (const match of tpadMatches) {
+            const seconds = Number(match.split('=').pop());
+            expect(seconds).toBeLessThanOrEqual(0.001);
+        }
+
+        // Filter shape: looped input must NOT carry `trim=start=...:end=...`
+        // (that filter caps output at the first iteration and ignores the
+        // -stream_loop). Instead, the source offset is set via setpts and
+        // the outer trim=duration caps the timeline length.
+        expect(command.filterComplex).not.toMatch(/trim=start=0:end=5/);
+        expect(command.filterComplex).toContain('trim=duration=14');
+        expect(command.filterComplex).toMatch(
+            /setpts=PTS-STARTPTS\+0\/TB/
+        );
+    });
+
+    it('does not loop a source that already covers the scene timeline', async () => {
+        const { createVideoExportFfmpegCommand } = await import(
+            '../client/video-export-ffmpeg'
+        );
+        const project = structuredClone(sampleVideoProject);
+        const videoAsset = project.assets.videos[0];
+        const voiceAsset = project.assets.voices[0];
+        // Sample asset is 12000ms (longer than 8000ms scene) → no loop needed.
+        project.assets.videos = [{ ...videoAsset, durationMs: 12_000 }];
+        project.assets.voices = [{ ...voiceAsset, durationMs: 8_000 }];
+        project.scenes = [{ ...project.scenes[0], durationMs: 8_000 }];
+        const videoAssetId = project.assets.videos[0].id;
+        const voiceAssetId = project.assets.voices[0].id;
+        project.tracks = [
+            {
+                clips: [
+                    {
+                        assetId: videoAssetId,
+                        crop: { height: 1080, width: 1920, x: 0, y: 0 },
+                        endMs: 8_000,
+                        id: 'video_clip_long_source',
+                        kind: 'video',
+                        sceneId: project.scenes[0].id,
+                        sourceEndMs: 8_000,
+                        sourceStartMs: 0,
+                        startMs: 0,
+                        transform: { rotation: 0, scale: 1, x: 0, y: 0 }
+                    } satisfies VideoClip
+                ],
+                id: 'track_video_long_source',
+                kind: 'video',
+                label: '视频'
+            },
+            {
+                clips: [
+                    {
+                        assetId: voiceAssetId,
+                        endMs: 8_000,
+                        id: 'voice_clip_long_source',
+                        kind: 'voice',
+                        sceneId: project.scenes[0].id,
+                        startMs: 0,
+                        voicePreset: voiceAsset.voice
+                    } satisfies VoiceClip
+                ],
+                id: 'track_voice_long_source',
+                kind: 'voice',
+                label: '配音'
+            }
+        ];
+
+        const command = createVideoExportFfmpegCommand({
+            ffmpegPath: '/repo/apps/desktop/bin/darwin/ffmpeg',
+            outputPath: '/tmp/long-source.mp4',
+            project
+        });
+
+        // No -stream_loop should be added when the source covers the timeline.
+        expect(command.args).not.toContain('-stream_loop');
+    });
+
+    // End-to-end: actually run ffmpeg on a real source file with the
+    // produced command and verify the rendered output is the expected
+    // length with motion frames in the second half. This is the test
+    // that would have caught the earlier "loop exists but trim
+    // caps it" bug — the unit tests only check the filter string.
+    it.skip('looped export actually fills the scene with motion frames', async () => {
+        // Skipped by default: requires a real ffmpeg binary in PATH,
+        // a real source video, and a full TTS pipeline. Set
+        // RUN_EXPORT_E2E=1 and remove this `.skip` when validating
+        // end-to-end. The unit-level test above already pins the
+        // filter shape, so this only adds confidence.
+        const { execFile } = await import('node:child_process');
+        const { promisify } = await import('node:util');
+        const { mkdtemp, rm } = await import('node:fs/promises');
+        const execFileAsync = promisify(execFile);
+        const mkdtempAsync = promisify(mkdtemp);
+        const rmAsync = promisify(rm);
+
+        const sourcePath = process.env.SOURCE_VIDEO;
+        if (!sourcePath) {
+            throw new Error('Set SOURCE_VIDEO=/path/to/short.mp4 to run');
+        }
+        const probe = await execFileAsync('ffprobe', [
+            '-v',
+            'error',
+            '-select_streams',
+            'v:0',
+            '-show_entries',
+            'stream=duration,r_frame_rate,nb_frames',
+            '-of',
+            'default=noprint_wrappers=1',
+            sourcePath
+        ]);
+        const fields = Object.fromEntries(
+            probe.stdout
+                .trim()
+                .split('\n')
+                .map((line) => line.split('='))
+        );
+        const sourceFrames = Number(fields.nb_frames);
+        const sourceDurationMs = Math.round(
+            Number(fields.duration ?? '0') * 1000
+        );
+
+        const project = structuredClone(sampleVideoProject);
+        project.assets.videos = [
+            { ...project.assets.videos[0], durationMs: sourceDurationMs }
+        ];
+        project.assets.voices = [
+            { ...project.assets.voices[0], durationMs: 14_000 }
+        ];
+        project.scenes = [
+            {
+                ...project.scenes[0],
+                durationMs: 14_000,
+                voiceAssetId: project.assets.voices[0].id
+            }
+        ];
+        const videoAssetId = project.assets.videos[0].id;
+        project.assets.videos = [{ ...project.assets.videos[0], id: videoAssetId }];
+        const voiceAssetId = project.assets.voices[0].id;
+        project.tracks = [
+            {
+                clips: [
+                    {
+                        assetId: videoAssetId,
+                        crop: { height: 1080, width: 1920, x: 0, y: 0 },
+                        endMs: 14_000,
+                        id: 'video_clip_e2e',
+                        kind: 'video',
+                        sceneId: project.scenes[0].id,
+                        sourceEndMs: sourceDurationMs,
+                        sourceStartMs: 0,
+                        startMs: 0,
+                        transform: { rotation: 0, scale: 1, x: 0, y: 0 }
+                    } satisfies VideoClip
+                ],
+                id: 'track_video_e2e',
+                kind: 'video',
+                label: '视频'
+            },
+            {
+                clips: [
+                    {
+                        assetId: voiceAssetId,
+                        endMs: 14_000,
+                        id: 'voice_clip_e2e',
+                        kind: 'voice',
+                        sceneId: project.scenes[0].id,
+                        startMs: 0,
+                        voicePreset: project.assets.voices[0].voice
+                    } satisfies VoiceClip
+                ],
+                id: 'track_voice_e2e',
+                kind: 'voice',
+                label: '配音'
+            }
+        ];
+
+        const tmpDir = await mkdtempAsync(
+            path.join(tmpdir(), 'miaoma-export-e2e-')
+        );
+        const outputPath = path.join(tmpDir, 'out.mp4');
+        const command = createVideoExportFfmpegCommand({
+            ffmpegPath: '/usr/local/bin/ffmpeg',
+            outputPath,
+            project
+        });
+
+        try {
+            await execFileAsync('/usr/local/bin/ffmpeg', command.args, {
+                stdio: 'pipe'
+            });
+            const out = await execFileAsync('ffprobe', [
+                '-v',
+                'error',
+                '-select_streams',
+                'v:0',
+                '-show_entries',
+                'stream=nb_frames',
+                '-of',
+                'default=noprint_wrappers=1',
+                outputPath
+            ]);
+            const outFrames = Number(
+                Object.fromEntries(
+                    out.stdout
+                        .trim()
+                        .split('\n')
+                        .map((line) => line.split('='))
+                ).nb_frames
+            );
+            // Output must contain strictly more frames than the source:
+            // otherwise ffmpeg just froze on the last frame and
+            // returned the same number of source frames.
+            expect(outFrames).toBeGreaterThan(sourceFrames);
+            // Sanity: output should be at least 1.5 loops of the source.
+            expect(outFrames).toBeGreaterThan(Math.ceil(sourceFrames * 1.5));
+        } finally {
+            await rmAsync(tmpDir, { recursive: true, force: true });
+        }
+    }, 60_000);
 });

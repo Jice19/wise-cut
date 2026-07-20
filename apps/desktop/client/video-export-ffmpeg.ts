@@ -307,6 +307,7 @@ const pushVideoClipFilter = ({
     filters,
     inputIndex,
     label,
+    loops,
     project,
     startMs,
     videoClip
@@ -315,6 +316,12 @@ const pushVideoClipFilter = ({
     filters: string[];
     inputIndex: number;
     label: string;
+    /**
+     * When true, the caller added `-stream_loop -1` for this input so
+     * ffmpeg can replay the source indefinitely. Skip the tpad fallback
+     * because looping frames are real motion, not cloned last frames.
+     */
+    loops: boolean;
     project: VideoProject;
     startMs: number;
     videoClip: VideoClip;
@@ -325,10 +332,34 @@ const pushVideoClipFilter = ({
     const speed = videoClip.speed ?? 1;
     const playbackSourceDurationSec =
         Math.max(0.001, sourceEndSec - sourceStartSec) / speed;
-    const freezeDurationSec = Math.max(
-        0,
-        timelineDurationSec - playbackSourceDurationSec
-    );
+    const freezeDurationSec = loops
+        ? 0
+        : Math.max(0, timelineDurationSec - playbackSourceDurationSec);
+
+    if (loops) {
+        // For looped inputs we cannot use `trim=end=sourceEndSec`
+        // because that filter caps the output at the first iteration
+        // and ignores the rest. Instead, skip the source to
+        // `sourceStartSec` via a setpts offset (so the loop starts at
+        // the requested offset) and let `-stream_loop -1` replay the
+        // source naturally until the outer trim cuts at the scene
+        // duration. No tpad is needed because the source never ends.
+        filters.push(
+            [
+                `[${inputIndex}:v]setpts=PTS-STARTPTS+${formatSeconds(
+                    sourceStartSec
+                )}/TB`,
+                `setpts=${formatSeconds(1 / speed)}*(PTS-STARTPTS)`,
+                `scale=${project.canvas.width}:${project.canvas.height}:force_original_aspect_ratio=increase`,
+                `crop=${project.canvas.width}:${project.canvas.height}`,
+                'setsar=1',
+                `fps=${project.canvas.fps}`,
+                `trim=duration=${formatSeconds(timelineDurationSec)}`,
+                `setpts=PTS-STARTPTS[${label}]`
+            ].join(',')
+        );
+        return;
+    }
 
     filters.push(
         [
@@ -634,12 +665,25 @@ export const createVideoExportFfmpegCommand = ({
 
         if (!asset) return;
 
+        // If the source window is shorter than the scene timeline, loop
+        // the input so ffmpeg has frames to fill the gap instead of
+        // cloning the last frame via tpad=stop_mode=clone. The trim
+        // filter downstream still bounds playback to sourceEndMs per
+        // iteration (and the timeline filter caps total duration).
+        const clipSourceMs = clip.sourceEndMs - clip.sourceStartMs;
+        const sceneDurationMs = range.endMs - range.startMs;
+        const needsLoop = clipSourceMs < sceneDurationMs;
+
+        if (needsLoop) {
+            args.push('-stream_loop', '-1');
+        }
         args.push('-i', asset.path);
         pushVideoClipFilter({
             endMs: range.endMs,
             filters,
             inputIndex,
             label: `v${index}`,
+            loops: needsLoop,
             project,
             startMs: range.startMs,
             videoClip: clip
