@@ -418,7 +418,10 @@ describe('MiaojianWorkspaceScreen', () => {
         );
 
         expect(workspaceSource).toContain('loadWorkspaceProjects');
-        expect(workspaceSource).toContain('window.appAPI.videoProject.list');
+        // Regression: must call miaomaAPI (the real Electron bridge),
+        // not the typo'd appAPI that silently broke the project list.
+        expect(workspaceSource).toContain('window.miaomaAPI.videoProject.list');
+        expect(workspaceSource).not.toContain('window.appAPI');
         expect(workspaceSource).toContain('setWorkspaceProjects');
         expect(workspaceSource).toContain("event.type === 'run.completed'");
         expect(workspaceSource).not.toContain('projects={workspaceProjects}');
@@ -434,9 +437,12 @@ describe('MiaojianWorkspaceScreen', () => {
         expect(workspaceSource).toContain('setProjectPendingDeletion(project)');
         expect(workspaceSource).toContain('handleProjectDeleteConfirm');
         expect(workspaceSource).not.toContain('window.confirm');
-        expect(workspaceSource).toContain(
-            'window.appAPI.videoProject.delete'
-        );
+        // Regression: this screen must call the Electron bridge under its
+        // real name (`miaomaAPI`). Earlier revisions typo'd it as
+        // `appAPI`, which silently broke the workspace project list
+        // because the bridge exposes nothing under that name.
+        expect(workspaceSource).toContain('window.miaomaAPI.videoProject');
+        expect(workspaceSource).not.toContain('window.appAPI');
         expect(workspaceSource).toContain('setWorkspaceProjects((projects) =>');
     });
 });

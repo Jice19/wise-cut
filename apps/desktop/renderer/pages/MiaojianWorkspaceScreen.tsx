@@ -97,11 +97,11 @@ export const MiaojianWorkspaceScreen = ({
         useState<WorkspaceProject[]>(initialProjects);
 
     const loadWorkspaceProjects = useCallback(async () => {
-        if (typeof window === 'undefined' || !window.appAPI?.videoProject) {
+        if (typeof window === 'undefined' || !window.miaomaAPI?.videoProject) {
             return;
         }
 
-        const result = await window.appAPI.videoProject.list();
+        const result = await window.miaomaAPI.videoProject.list();
 
         if (result.success === false) return;
 
@@ -125,7 +125,7 @@ export const MiaojianWorkspaceScreen = ({
     useEffect(() => {
         if (typeof window === 'undefined') return undefined;
 
-        return window.appAPI?.videoAgent?.onEvent((event) => {
+        return window.miaomaAPI?.videoAgent?.onEvent((event) => {
             if (event.type === 'run.completed') {
                 void loadWorkspaceProjects();
             }
@@ -166,13 +166,13 @@ export const MiaojianWorkspaceScreen = ({
     const handleProjectDeleteConfirm = async () => {
         if (!projectPendingDeletion) return;
 
-        if (typeof window === 'undefined' || !window.appAPI?.videoProject) {
+        if (typeof window === 'undefined' || !window.miaomaAPI?.videoProject) {
             setProjectDeleteErrorMessage('项目删除接口尚未就绪');
             return;
         }
 
         setIsProjectDeleting(true);
-        const result = await window.appAPI.videoProject.delete(
+        const result = await window.miaomaAPI.videoProject.delete(
             projectPendingDeletion.id
         );
 
