@@ -623,35 +623,79 @@ export const createDesktopVideoAgentTools = ({
                 ]
             } satisfies VideoProject;
         },
-        generateCreativeBrief: async ({ assets, input }) =>
-            modelProvider
-                ? modelProvider.generateCreativeBrief({
-                      prompt: input.prompt,
-                      sourceAssetSummaries: assets.map(
-                          (asset) => asset.description
-                      )
-                  })
-                : createBrief({ assets, input }),
-        matchAssets: async ({ assets, scenes }) =>
-            modelProvider
-                ? modelProvider.rankAssetMatches({
-                      candidates: assets,
-                      scenes
-                  })
-                : scenes.map((scene, index) => {
-                      const asset = assets[index % assets.length];
+        generateCreativeBrief: async ({ assets, input }) => {
+            if (!modelProvider) {
+                return createBrief({ assets, input });
+            }
 
-                      return {
-                          rankedAssetIds: [
-                              {
-                                  assetId: asset.assetId,
-                                  reason: `按分镜顺序匹配 ${asset.description}`,
-                                  score: 0.82
-                              }
-                          ],
-                          sceneId: scene.id
-                      };
-                  }),
+            // 跟 planScenes 一样的合并逻辑:优先用多模态理解结果,回退到
+            // scan 阶段占位 description。brief 的 visualStyle / keyMessages
+            // 会基于真实画面内容生成。
+            const sourceAssets = assets.map((asset) => {
+                const understanding = getAssetUnderstanding?.(
+                    input.runId,
+                    asset.assetId
+                );
+
+                return {
+                    actions: understanding?.actions,
+                    assetId: asset.assetId,
+                    description: understanding?.description ?? asset.description,
+                    mood: understanding?.mood,
+                    objects: understanding?.objects,
+                    suggestedSceneType: understanding?.suggestedSceneType
+                };
+            });
+
+            return modelProvider.generateCreativeBrief({
+                prompt: input.prompt,
+                sourceAssetSummaries: assets.map(
+                    (asset) => asset.description
+                ),
+                sourceAssets
+            });
+        },
+        matchAssets: async ({ assets, scenes, input }) => {
+            if (!modelProvider) {
+                return scenes.map((scene, index) => {
+                    const asset = assets[index % assets.length];
+
+                    return {
+                        rankedAssetIds: [
+                            {
+                                assetId: asset.assetId,
+                                reason: `按分镜顺序匹配 ${asset.description}`,
+                                score: 0.82
+                            }
+                        ],
+                        sceneId: scene.id
+                    };
+                });
+            }
+
+            // 跟 planScenes / generateCreativeBrief 同套路:把多模态
+            // 理解合并成 sourceAssets,让 LLM 在为分镜匹配素材时参考
+            // 每个素材的 mood / suggestedSceneType,而不只是 description。
+            const sourceAssets = assets.map((asset) => {
+                const understanding = getAssetUnderstanding?.(
+                    input.runId,
+                    asset.assetId
+                );
+
+                return {
+                    assetId: asset.assetId,
+                    description: understanding?.description ?? asset.description,
+                    mood: understanding?.mood,
+                    suggestedSceneType: understanding?.suggestedSceneType
+                };
+            });
+
+            return modelProvider.rankAssetMatches({
+                candidates: assets,
+                scenes,
+                sourceAssets
+            });
+        },
         planScenes: async ({ assets, brief, input }) => {
             if (modelProvider) {
                 // 优先用 Step 2 多模态理解结果(IPC understandingByRunId 缓存);

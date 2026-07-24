@@ -4,6 +4,8 @@ import type { ZodType } from 'zod';
 
 import type { AgentEnv } from '../src/config/load-agent-env';
 import { buildScenePlannerPrompt } from '../src/prompts/scene-planner';
+import { buildCreativeBriefPrompt } from '../src/prompts/creative-brief';
+import { buildAssetMatcherPrompt } from '../src/prompts/asset-matcher';
 import {
     ArkChatModelProvider,
     ModelProviderSchemaError,
@@ -208,6 +210,90 @@ describe('ArkChatModelProvider', () => {
         expect(prompt).toContain('描述:素材画面内容');
         expect(prompt).not.toContain('氛围:');
         expect(prompt).not.toContain('物体:');
+    });
+
+    it('renders multimodal source assets into the creative brief prompt', () => {
+        const prompt = buildCreativeBriefPrompt({
+            prompt: '做一个产品发布视频',
+            sourceAssetSummaries: ['产品界面录屏', '人物口播'],
+            sourceAssets: [
+                {
+                    actions: ['讲解', '演示'],
+                    assetId: 'video_asset_run_001',
+                    description: '一个人在镜头前讲解产品,画面偏专业感',
+                    mood: '专注专业',
+                    objects: ['人物', '产品'],
+                    suggestedSceneType: '口播讲解分镜'
+                }
+            ]
+        });
+
+        // 原始 sourceAssetSummaries 仍然在 prompt 里(向后兼容)
+        expect(prompt).toContain('产品界面录屏');
+        expect(prompt).toContain('人物口播');
+        // 新增 sourceAssets 区段也拼进去了
+        expect(prompt).toContain('本地素材详情');
+        expect(prompt).toContain('video_asset_run_001');
+        expect(prompt).toContain('专注专业');
+        expect(prompt).toContain('适合分镜类型:口播讲解分镜');
+    });
+
+    it('omits the creative brief source assets section when not provided', () => {
+        const prompt = buildCreativeBriefPrompt({
+            prompt: '做一个产品发布视频',
+            sourceAssetSummaries: ['产品界面录屏']
+        });
+
+        expect(prompt).not.toContain('本地素材详情');
+        // 原始 summaries 仍能进入
+        expect(prompt).toContain('产品界面录屏');
+    });
+
+    it('renders multimodal source assets into the asset matcher prompt', () => {
+        const prompt = buildAssetMatcherPrompt({
+            candidates: [
+                {
+                    assetId: 'video_asset_run_001',
+                    description: '本地视频素材',
+                    durationMs: 5000
+                }
+            ],
+            scenes: [
+                {
+                    durationMs: 5000,
+                    goal: '开场',
+                    id: 'scene_001',
+                    index: 1,
+                    script: '先把重点说清楚',
+                    subtitleLines: ['先把重点说清楚'],
+                    title: '开场',
+                    visualIntent: '人物口播讲解'
+                }
+            ],
+            sourceAssets: [
+                {
+                    assetId: 'video_asset_run_001',
+                    description: '一个人在镜头前讲解产品',
+                    mood: '专注专业',
+                    suggestedSceneType: '口播讲解分镜'
+                },
+                {
+                    assetId: 'video_asset_run_002',
+                    description: '产品在桌面特写',
+                    mood: '明亮科技感',
+                    suggestedSceneType: '产品展示分镜'
+                }
+            ]
+        });
+
+        // candidates 区段仍然在
+        expect(prompt).toContain('video_asset_run_001');
+        // 多模态区段拼进去了
+        expect(prompt).toContain('候选素材的多模态理解');
+        expect(prompt).toContain('专注专业');
+        expect(prompt).toContain('产品展示分镜');
+        // 提示 LLM 用 mood 匹配 visualIntent
+        expect(prompt).toContain('mood / 适合分镜类型与分镜 visualIntent 匹配');
     });
 
     it('uses LangChain structured output for creative brief generation', async () => {

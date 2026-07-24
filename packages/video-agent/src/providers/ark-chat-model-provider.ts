@@ -31,7 +31,8 @@ import {
     buildScenePlannerPrompt,
     type PlannedScene,
     type ScenePlanInput,
-    ScenePlanResponseSchema
+    ScenePlanResponseSchema,
+    type SourceAssetSummary
 } from '../prompts/scene-planner';
 
 import type {
@@ -424,13 +425,19 @@ export class ArkChatModelProvider implements ModelProvider {
 
     async rankAssetMatches({
         candidates,
-        scenes
+        scenes,
+        sourceAssets
     }: {
         candidates: AssetMatchCandidate[];
         scenes: PlannedScene[];
+        sourceAssets?: SourceAssetSummary[];
     }): Promise<AssetMatchRanking[]> {
         const response = await this.invokeStructured({
-            prompt: buildAssetMatcherPrompt({ candidates, scenes }),
+            prompt: buildAssetMatcherPrompt({
+                candidates,
+                scenes,
+                sourceAssets
+            }),
             schema: AssetMatchResponseSchema,
             task: 'assetMatcher'
         });

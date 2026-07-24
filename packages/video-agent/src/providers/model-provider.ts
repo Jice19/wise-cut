@@ -1,6 +1,7 @@
 /* */
 import type {
     AssetMatchCandidate,
+    AssetMatchPromptInput,
     AssetMatchRanking
 } from '../prompts/asset-matcher';
 import type {
@@ -70,5 +71,5 @@ export type ModelProvider = {
     rankAssetMatches: (input: {
         candidates: AssetMatchCandidate[];
         scenes: PlannedScene[];
-    }) => Promise<AssetMatchRanking[]>;
+    } & Omit<AssetMatchPromptInput, 'candidates' | 'scenes'>) => Promise<AssetMatchRanking[]>;
 };
