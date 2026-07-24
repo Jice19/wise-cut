@@ -138,6 +138,76 @@ describe('ArkChatModelProvider', () => {
         expect(prompt).toContain('script 必须等于 subtitleLines 按换行拼接');
         expect(prompt).toContain('分镜数量不要固定');
         expect(prompt).toContain('每个分镜通常保留 1 到 3 条 subtitleLines');
+        // 没传 sourceAssets 时不拼素材清单(向后兼容)
+        expect(prompt).not.toContain('可用的本地素材');
+    });
+
+    it('renders multimodal source asset summaries into the scene planner prompt', () => {
+        const prompt = buildScenePlannerPrompt({
+            brief: { summary: '产品发布' },
+            sourceAssets: [
+                {
+                    actions: ['讲解', '演示'],
+                    assetId: 'video_asset_run_001',
+                    description: '一个人在镜头前讲解产品,画面偏专业感',
+                    mood: '专注专业',
+                    objects: ['人物', '产品', '屏幕'],
+                    suggestedSceneType: '口播讲解分镜'
+                },
+                {
+                    actions: ['展示'],
+                    assetId: 'video_asset_run_002',
+                    description: '产品在桌面特写,配文字说明',
+                    mood: '明亮科技感',
+                    objects: ['产品', '键盘'],
+                    suggestedSceneType: '产品展示分镜'
+                }
+            ]
+        });
+
+        // 拼出了"可用的本地素材"区段
+        expect(prompt).toContain('可用的本地素材');
+        // 每条素材都进去了,带 assetId + 描述 + 关键 meta
+        expect(prompt).toContain('video_asset_run_001');
+        expect(prompt).toContain('一个人在镜头前讲解产品,画面偏专业感');
+        expect(prompt).toContain('专注专业');
+        expect(prompt).toContain('口播讲解分镜');
+        expect(prompt).toContain('video_asset_run_002');
+        expect(prompt).toContain('物体:人物、产品、屏幕');
+        expect(prompt).toContain('动作:讲解、演示');
+        // 提示 LLM 把 visualIntent 落到素材上
+        expect(prompt).toContain('请尽量把 visualIntent 写成能匹配上述素材画面内容');
+    });
+
+    it('skips the source assets section when the list is empty', () => {
+        const prompt = buildScenePlannerPrompt({
+            brief: { summary: '产品发布' },
+            sourceAssets: []
+        });
+
+        expect(prompt).not.toContain('可用的本地素材');
+        // brief 仍然在末尾
+        expect(prompt).toContain('创意 brief');
+    });
+
+    it('omits optional meta lines when source asset summary has no optional fields', () => {
+        const prompt = buildScenePlannerPrompt({
+            brief: { summary: '产品发布' },
+            sourceAssets: [
+                {
+                    assetId: 'video_asset_run_001',
+                    description: '素材画面内容'
+                }
+            ]
+        });
+
+        expect(prompt).toContain('视频_asset_run_001'.replace('视频', 'video'));
+        // 至少描述行要进去;可选字段(mood / objects / actions /
+        // suggestedSceneType)被省略,不应该出现 `氛围:` 这种空 meta。
+        expect(prompt).toContain('素材[video_asset_run_001]');
+        expect(prompt).toContain('描述:素材画面内容');
+        expect(prompt).not.toContain('氛围:');
+        expect(prompt).not.toContain('物体:');
     });
 
     it('uses LangChain structured output for creative brief generation', async () => {
