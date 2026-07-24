@@ -9,6 +9,23 @@ export type AssetAnalysis = {
     assetId: string;
     description: string;
     durationMs: number;
+    /**
+     * Frames per second of the source asset. Optional because older
+     * analysis payloads persisted before this field was introduced may
+     * not carry it; downstream code should fall back to a sensible
+     * default (e.g. 30 fps) when missing.
+     */
+    fps?: number;
+    /**
+     * Pixel height of the source asset. Optional for the same reason as
+     * `fps`; downstream should fall back to the canvas height.
+     */
+    height?: number;
+    /**
+     * Pixel width of the source asset. Optional for the same reason as
+     * `fps`; downstream should fall back to the canvas width.
+     */
+    width?: number;
 };
 
 export type AssetMatchResult = {

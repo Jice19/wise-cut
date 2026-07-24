@@ -309,7 +309,7 @@ export const PreviewPanel = ({
             : undefined;
     const voiceSource = activeVoiceCue?.source ?? activeSegment?.voiceSource;
     const voiceVolume = activeVoiceCue?.volume;
-    const videoPlaybackRate = activeSegment?.playbackRate;
+    const videoPlaybackRate = activeSegment?.playbackRate ?? 1;
     const voicePlaybackRate =
         activeVoiceCue?.playbackRate ?? activeSegment?.playbackRate;
     const voicePlaybackKey = createPreviewVoicePlaybackKey({
