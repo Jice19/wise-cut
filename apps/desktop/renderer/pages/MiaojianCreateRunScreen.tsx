@@ -10,6 +10,7 @@ import {
     approveAgentRun,
     cancelAgentRun,
     ensureAgentRunEventSubscription,
+    reviseAgentRun,
     useAgentRunSnapshot
 } from '../stores/agent-run-store';
 
@@ -41,6 +42,12 @@ export const MiaojianCreateRunScreen = ({ runId }: { runId?: string }) => {
         void cancelAgentRun(resolvedRunId);
     };
 
+    const handleRevise = (feedback: string) => {
+        if (!resolvedRunId) return;
+
+        void reviseAgentRun(resolvedRunId, feedback);
+    };
+
     return (
         <main
             data-create-run-message-page="true"
@@ -69,6 +76,7 @@ export const MiaojianCreateRunScreen = ({ runId }: { runId?: string }) => {
                     <AgentConversationTimeline
                         onApprove={handleApprove}
                         onCancel={handleCancel}
+                        onRevise={handleRevise}
                         runId={resolvedRunId}
                         viewModel={snapshot.viewModel}
                     />

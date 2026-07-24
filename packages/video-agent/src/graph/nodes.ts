@@ -1,5 +1,5 @@
 /* */
-import { interrupt } from '@langchain/langgraph';
+import { Command, interrupt } from '@langchain/langgraph';
 import { validateVideoProject } from '@wise-cut/video-project';
 
 import type { AgentRunEventEmitter } from '../events/event-emitter';
@@ -245,9 +245,19 @@ export const createVideoCreationNodes = ({
         run: async (state) => {
             const brief = requireBrief(state);
             const input = requireInput(state);
+            // scene_approval reject 时会把 feedback 写到 state,plan_scenes
+            // 节点重跑时透传给 LLM。如果用户没给反馈(空字符串)就省略,
+            // 跟"首次拆分镜"行为一致。
+            const feedback = state.sceneApprovalFeedback?.trim()
+                ? state.sceneApprovalFeedback.trim()
+                : undefined;
 
             await emitModelStreamReport({
-                context: `创作标题：${brief.title}\n核心信息：${brief.keyMessages.join('、')}`,
+                context: feedback
+                    ? `创作标题:${brief.title}\n核心信息:${brief.keyMessages.join(
+                          '、'
+                      )}\n用户反馈:${feedback}`
+                    : `创作标题：${brief.title}\n核心信息：${brief.keyMessages.join('、')}`,
                 emit,
                 messageId: 'scene_planner-storyboard-breakdown',
                 nodeName: 'scene_planner',
@@ -261,6 +271,7 @@ export const createVideoCreationNodes = ({
                 scenes: await tools.planScenes({
                     assets: state.assets,
                     brief,
+                    feedback,
                     input
                 })
             };
@@ -303,11 +314,10 @@ export const createVideoCreationNodes = ({
             type: 'scene-plan'
         });
 
-        try {
-            if (!approval.approved) {
-                throw new Error('Scene plan approval was rejected');
-            }
-
+        if (!approval.approved) {
+            // 用户 reject:把 feedback 写到 state,清空 scenes,跳回 plan_scenes
+            // 节点重跑。LangGraph 的 Command({ goto }) 会在 resume 后跳转,
+            // 不会继续走 match_assets。
             emit({
                 createdAt: '',
                 nodeName: 'scene_approval',
@@ -316,18 +326,24 @@ export const createVideoCreationNodes = ({
                 type: 'node.completed'
             });
 
-            return {};
-        } catch (error) {
-            emit({
-                createdAt: '',
-                error: serializeError(error),
-                nodeName: 'scene_approval',
-                runId: state.runId,
-                sequence: 0,
-                type: 'node.failed'
+            return new Command({
+                goto: 'plan_scenes',
+                update: {
+                    sceneApprovalFeedback: approval.feedback?.trim() ?? '',
+                    scenes: []
+                }
             });
-            throw error;
         }
+
+        emit({
+            createdAt: '',
+            nodeName: 'scene_approval',
+            runId: state.runId,
+            sequence: 0,
+            type: 'node.completed'
+        });
+
+        return {};
     },
     synthesizeVoice: createInstrumentedNode({
         emit,

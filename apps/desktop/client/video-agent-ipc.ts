@@ -964,7 +964,8 @@ export const createLangGraphVideoAgentController = ({
             return runWithEmitter(input.runId, emit, async () => {
                 const result = await getRunner().resume({
                     approval: {
-                        approved: input.approved
+                        approved: input.approved,
+                        feedback: input.feedback?.trim() || undefined
                     },
                     runId: input.runId
                 });

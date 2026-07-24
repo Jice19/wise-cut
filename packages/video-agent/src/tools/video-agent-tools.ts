@@ -99,6 +99,11 @@ export type VideoAgentTools = {
     planScenes: (input: {
         assets: AssetAnalysis[];
         brief: CreativeBrief;
+        /**
+         * 可选:用户对分镜方案的反馈(scene_approval reject 时传入)。
+         * 透传给 modelProvider.planScenes,作为 LLM 调整分镜的依据。
+         */
+        feedback?: string;
         input: VideoCreationInput;
     }) => Promise<PlannedScene[]>;
     saveProject: (input: {

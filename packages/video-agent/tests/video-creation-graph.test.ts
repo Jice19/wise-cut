@@ -84,6 +84,9 @@ const createFakeTools = ({
     invalidProject?: boolean;
 } = {}) => {
     const calls: string[] = [];
+    // 记录 planScenes 工具每次调用收到的 feedback(scene_approval reject
+    // 后重跑 plan_scenes 时会用,测试 inspect 验证透传链路)
+    const planScenesFeedbacks: (string | null)[] = [];
     const tools: VideoAgentTools = {
         analyzeAssets: async () => {
             calls.push('analyzeAssets');
@@ -109,8 +112,10 @@ const createFakeTools = ({
             calls.push('matchAssets');
             return matches;
         },
-        planScenes: async () => {
+        planScenes: async (input: { feedback?: string }) => {
             calls.push('planScenes');
+            // 把 feedback 写到数组里(测试 inspect)
+            planScenesFeedbacks.push(input?.feedback ?? null);
             return scenes;
         },
         saveProject: async ({ project }) => {
@@ -150,7 +155,7 @@ const createFakeTools = ({
         }
     };
 
-    return { calls, tools };
+    return { calls, planScenesFeedbacks, tools };
 };
 
 const collectEvents = () => {
@@ -230,6 +235,59 @@ describe('video creation graph', () => {
                 'run.completed'
             ])
         );
+    });
+
+    it('loops back to plan_scenes when the user rejects scene approval with feedback', async () => {
+        const { calls, planScenesFeedbacks, tools } = createFakeTools();
+        const { emit, events } = collectEvents();
+        const graph = createVideoCreationGraph({ emit, tools });
+
+        // 第一次:start → scene_approval interrupt
+        const firstStart = await graph.start(runInput);
+
+        expect(firstStart.status).toBe('waiting_for_approval');
+        expect(firstStart.approval?.type).toBe('scene-plan');
+
+        // 用户 reject 带 feedback
+        const rejectResult = await graph.resume({
+            approval: {
+                approved: false,
+                feedback: '把第 3 个分镜的口播缩短,视觉意图落到素材 video_asset_001'
+            },
+            runId: runInput.runId
+        });
+
+        // reject 后应该再 interrupt 一次(回到 scene_approval)
+        expect(rejectResult.status).toBe('waiting_for_approval');
+        expect(rejectResult.approval?.type).toBe('scene-plan');
+
+        // planScenes 应该被调用了 2 次,第二次带 feedback
+        expect(planScenesFeedbacks).toEqual([null, '把第 3 个分镜的口播缩短,视觉意图落到素材 video_asset_001']);
+
+        // 调用顺序:scanAssets → analyzeAssets → creativeBrief → planScenes
+        // → ... → planScenes(重跑) → scene_approval(再 interrupt)
+        const planScenesIndices = calls
+            .map((call, index) => (call === 'planScenes' ? index : -1))
+            .filter((index) => index >= 0);
+        expect(planScenesIndices).toHaveLength(2);
+
+        // 第二次 approve → 完成
+        const finalResult = await graph.resume({
+            approval: {
+                approved: true
+            },
+            runId: runInput.runId
+        });
+
+        expect(finalResult.status).toBe('completed');
+        expect(validateVideoProject(finalResult.project).success).toBe(true);
+        expect(calls).toContain('matchAssets');
+
+        // 整个事件流应该出现 2 次 approval.required
+        const approvalRequiredEvents = events.filter(
+            (event) => event.type === 'approval.required'
+        );
+        expect(approvalRequiredEvents).toHaveLength(2);
     });
 
     it('returns readable validation errors and emits run.failed', async () => {

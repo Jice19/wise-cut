@@ -696,7 +696,7 @@ export const createDesktopVideoAgentTools = ({
                 sourceAssets
             });
         },
-        planScenes: async ({ assets, brief, input }) => {
+        planScenes: async ({ assets, brief, feedback, input }) => {
             if (modelProvider) {
                 // 优先用 Step 2 多模态理解结果(IPC understandingByRunId 缓存);
                 // 没理解过的素材回退到 scan 阶段的占位 description,确保 LLM
@@ -717,8 +717,16 @@ export const createDesktopVideoAgentTools = ({
                     };
                 });
 
+                // scene_approval reject 后会带 feedback 重新跑 plan_scenes,
+                // 透传给 LLM 让它基于反馈调整分镜。空白时省略,跟原版一致。
+                const normalizedFeedback =
+                    typeof feedback === 'string' && feedback.trim().length > 0
+                        ? feedback.trim()
+                        : undefined;
+
                 const plannedScenes = await modelProvider.planScenes({
                     brief,
+                    feedback: normalizedFeedback,
                     sourceAssets
                 });
 

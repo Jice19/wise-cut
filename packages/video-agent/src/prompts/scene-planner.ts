@@ -41,6 +41,12 @@ export type SourceAssetSummary = {
 export type ScenePlanInput = {
     brief: unknown;
     /**
+     * 可选:用户对当前分镜方案的反馈(在 scene_approval reject 时传入)。
+     * 提供后,LLM 会基于反馈调整分镜(例如"更短""去掉第 3 个分镜"
+     * "把视觉意图落到素材 video_asset_001")。未提供就跟原版一致。
+     */
+    feedback?: string;
+    /**
      * 可选:本地素材的多模态理解摘要列表。如果提供,LLM 拆分镜时会把
      * 视觉意图(`visualIntent`)落到具体素材的画面内容上,而不是凭空写。
      * 没提供就跟原版一致,只靠 brief 拆分镜。
@@ -76,11 +82,15 @@ const formatSourceAssetsSection = (sourceAssets: SourceAssetSummary[]) => {
 
 export const buildScenePlannerPrompt = ({
     brief,
+    feedback,
     sourceAssets,
     targetSceneCount
 }: ScenePlanInput): string => {
     const sourceAssetsSection = sourceAssets
         ? formatSourceAssetsSection(sourceAssets)
+        : undefined;
+    const feedbackSection = feedback
+        ? `用户对上一版分镜方案的反馈(请据此调整,如果反馈跟其他规则冲突,以反馈为准):${feedback}`
         : undefined;
 
     return [
@@ -98,6 +108,7 @@ export const buildScenePlannerPrompt = ({
         'script 必须等于 subtitleLines 按换行拼接，确保左侧文稿字幕展示、字幕文本和 TTS 输入完全一致。',
         '每个分镜对应一个视频画面，但可以包含多条 subtitleLines；每条 subtitleLines 后续会生成一段独立配音。',
         sourceAssetsSection,
+        feedbackSection,
         `创意 brief：${JSON.stringify(brief)}`
     ]
         .filter((line) => line !== undefined)

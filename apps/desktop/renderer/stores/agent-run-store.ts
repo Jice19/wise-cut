@@ -228,6 +228,28 @@ export const approveAgentRun = async (runId: string) => {
     });
 };
 
+/**
+ * reject 分镜方案 + 反馈。会把 feedback 传到 plan_scenes 节点重跑,
+ * graph 内部跳回 plan_scenes,跑完再 interrupt 等用户确认。
+ */
+export const reviseAgentRun = async (runId: string, feedback: string) => {
+    const trimmed = feedback.trim();
+
+    addAgentRunUserReply({
+        approved: false,
+        content: trimmed
+            ? `调整分镜:${trimmed}`
+            : '调整分镜方向',
+        runId
+    });
+
+    return window.miaomaAPI.videoAgent.approve({
+        approved: false,
+        feedback: trimmed || undefined,
+        runId
+    });
+};
+
 export const cancelAgentRun = async (runId: string) => {
     addAgentRunUserReply({
         approved: false,

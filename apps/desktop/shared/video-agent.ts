@@ -23,6 +23,12 @@ export type VideoAgentStartInput = {
 
 export type VideoAgentApprovalInput = {
     approved: boolean;
+    /**
+     * 可选:用户对分镜方案的反馈。当 approved=false 时,会被传到
+     * plan_scenes 节点重跑时用,作为 LLM 调整分镜的依据。
+     * 当 approved=true 时忽略。
+     */
+    feedback?: string;
     runId: string;
 };
 

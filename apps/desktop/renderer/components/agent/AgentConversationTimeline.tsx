@@ -472,15 +472,29 @@ const ApprovalMessage = ({
     canApprove,
     message,
     onApprove,
-    onCancel
+    onCancel,
+    onRevise
 }: {
     canApprove: boolean;
     message: AgentConversationMessage;
     onApprove?: () => void;
     onCancel?: () => void;
+    /**
+     * 可选:用户拒绝当前分镜并给出反馈,触发 plan_scenes 节点重跑。
+     * feedback 透传到 LLM 作为调整依据,跑完会再 interrupt 等用户确认。
+     */
+    onRevise?: (feedback: string) => void;
 }) => {
     const paragraphs = getParagraphs(message);
     const tables = getTableBlocks(message);
+    const [feedback, setFeedback] = useState('');
+    const trimmedFeedback = feedback.trim();
+    const canRevise = trimmedFeedback.length > 0;
+    const handleRevise = () => {
+        if (!canRevise) return;
+        onRevise?.(trimmedFeedback);
+        setFeedback('');
+    };
 
     return (
         <article
@@ -502,22 +516,56 @@ const ApprovalMessage = ({
                 <TablePreview key={index} table={table} />
             ))}
             {canApprove ? (
-                <div className="flex justify-end gap-2">
-                    <button
-                        type="button"
-                        className="h-9 rounded-[10px] border border-[#334155] bg-[#101216] px-4 text-[13px] font-[650] text-[#A9AFBA] transition-colors duration-200 hover:border-[#4B5563] hover:text-[#EAF7FF]"
-                        onClick={onCancel}
-                    >
-                        取消
-                    </button>
-                    <button
-                        type="button"
-                        className="h-9 rounded-[10px] bg-[#EAF7FF] px-4 text-[13px] font-[800] text-[#0F172A] transition-transform duration-200 hover:-translate-y-0.5"
-                        onClick={onApprove}
-                    >
-                        确认分镜
-                    </button>
-                </div>
+                <>
+                    {onRevise ? (
+                        <div className="flex flex-col gap-2 rounded-[12px] border border-[#252B35] bg-[#0D1015] p-3">
+                            <label
+                                htmlFor={`scene-feedback-${message.sequence}`}
+                                className="text-[12px] font-[650] leading-[18px] text-[#C5CBD6]"
+                            >
+                                不满意?告诉智能体怎么调
+                            </label>
+                            <textarea
+                                id={`scene-feedback-${message.sequence}`}
+                                data-scene-revision-feedback="true"
+                                value={feedback}
+                                onChange={(event) =>
+                                    setFeedback(event.target.value)
+                                }
+                                placeholder="例如:把第 3 个分镜的口播缩短;视觉意图落到素材 video_asset_001"
+                                rows={2}
+                                className="w-full resize-none rounded-[8px] border border-[#2A2F38] bg-[#11141A] px-3 py-2 text-[13px] leading-[20px] text-[#DCE2EA] outline-none placeholder:text-[#6F7784] focus:border-[#4B5563]"
+                            />
+                            <div className="flex justify-end">
+                                <button
+                                    type="button"
+                                    data-scene-revision-submit="true"
+                                    disabled={!canRevise}
+                                    className="h-8 rounded-[8px] border border-[#334155] bg-[#1E2633] px-3 text-[12px] font-[800] text-[#DCE2EA] transition-colors duration-200 hover:border-[#4B5563] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                                    onClick={handleRevise}
+                                >
+                                    调整并重跑
+                                </button>
+                            </div>
+                        </div>
+                    ) : null}
+                    <div className="flex justify-end gap-2">
+                        <button
+                            type="button"
+                            className="h-9 rounded-[10px] border border-[#334155] bg-[#101216] px-4 text-[13px] font-[650] text-[#A9AFBA] transition-colors duration-200 hover:border-[#4B5563] hover:text-[#EAF7FF]"
+                            onClick={onCancel}
+                        >
+                            取消创作
+                        </button>
+                        <button
+                            type="button"
+                            className="h-9 rounded-[10px] bg-[#EAF7FF] px-4 text-[13px] font-[800] text-[#0F172A] transition-transform duration-200 hover:-translate-y-0.5"
+                            onClick={onApprove}
+                        >
+                            确认分镜
+                        </button>
+                    </div>
+                </>
             ) : null}
         </article>
     );
@@ -645,6 +693,7 @@ const renderMessage = ({
     message,
     onApprove,
     onCancel,
+    onRevise,
     runId
 }: {
     canApprove: boolean;
@@ -652,6 +701,7 @@ const renderMessage = ({
     message: AgentConversationMessage;
     onApprove?: () => void;
     onCancel?: () => void;
+    onRevise?: (feedback: string) => void;
     runId?: string;
 }) => {
     if (message.sourceEventType === 'run.started') {
@@ -683,6 +733,7 @@ const renderMessage = ({
                 message={message}
                 onApprove={onApprove}
                 onCancel={onCancel}
+                onRevise={onRevise}
             />
         );
     }
@@ -713,11 +764,13 @@ const renderMessage = ({
 export const AgentConversationTimeline = ({
     onApprove,
     onCancel,
+    onRevise,
     runId,
     viewModel
 }: {
     onApprove?: () => void;
     onCancel?: () => void;
+    onRevise?: (feedback: string) => void;
     runId?: string;
     viewModel: AgentConversationViewModel;
 }) => {
@@ -737,6 +790,7 @@ export const AgentConversationTimeline = ({
                             message,
                             onApprove,
                             onCancel,
+                            onRevise,
                             runId
                         })}
                     </div>
