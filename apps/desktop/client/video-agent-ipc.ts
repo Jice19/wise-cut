@@ -23,11 +23,13 @@ import {
 
 import type {
     DesktopAgentRunEvent,
+    VideoAgentAnalyzeAssetInput,
     VideoAgentApprovalInput,
     VideoAgentCancelInput,
     VideoAgentOperationResult,
     VideoAgentRegenerateSceneInput,
     VideoAgentRegenerateVoicesInput,
+    VideoAgentReportSelectedFramesInput,
     VideoAgentResultData,
     VideoAgentStartInput
 } from '../shared/video-agent';
@@ -72,6 +74,10 @@ type UnsequencedDesktopAgentRunEvent = DesktopAgentRunEvent extends infer Event
 export type VideoAgentEventEmitter = (event: DesktopAgentRunEvent) => void;
 
 export type VideoAgentIpcController = {
+    analyzeAsset: (
+        input: VideoAgentAnalyzeAssetInput,
+        emit: VideoAgentEventEmitter
+    ) => Promise<VideoAgentOperationResult<VideoAgentResultData>>;
     approve: (
         input: VideoAgentApprovalInput,
         emit: VideoAgentEventEmitter
@@ -86,6 +92,10 @@ export type VideoAgentIpcController = {
     ) => Promise<VideoAgentOperationResult<VideoAgentResultData>>;
     regenerateVoices: (
         input: VideoAgentRegenerateVoicesInput,
+        emit: VideoAgentEventEmitter
+    ) => Promise<VideoAgentOperationResult<VideoAgentResultData>>;
+    reportSelectedFrames: (
+        input: VideoAgentReportSelectedFramesInput,
         emit: VideoAgentEventEmitter
     ) => Promise<VideoAgentOperationResult<VideoAgentResultData>>;
     start: (
@@ -306,6 +316,10 @@ export const createDemoVideoAgentController = ({
     };
 
     return {
+        analyzeAsset: async (input) =>
+            success({
+                runId: input.runId
+            }),
         approve: async (input, emit) => {
             const state = runs.get(input.runId);
 
@@ -619,6 +633,11 @@ export const createDemoVideoAgentController = ({
             return success({
                 runId: state.runId
             });
+        },
+        reportSelectedFrames: async (rawInput) => {
+            return success({
+                runId: rawInput.runId
+            });
         }
     };
 };
@@ -649,6 +668,33 @@ export const createLangGraphVideoAgentController = ({
     const activeEmitters = new Map<string, VideoAgentEventEmitter>();
     const runs = new Map<string, LangGraphVideoAgentRunState>();
     const voiceRegenerationRuns = new Map<string, VoiceRegenerationRunState>();
+    // Step 2 多模态理解用到的缓存:
+    // - keyframesByRunId: scan 阶段推过来的所有 keyframes(全量,用于兜底)
+    // - fileNameByRunId: 资产 → 原始 fileName(修之前 .map(()=>'').join('') 永远是空字符串的 bug)
+    // - selectedFramesByRunId: renderer 实时推过来的代表帧(用户精选,优先用)
+    const keyframesByRunId = new Map<
+        string,
+        Map<
+            string,
+            {
+                dataUrl: string;
+                index: number;
+                timestampMs: number;
+            }[]
+        >
+    >();
+    const fileNameByRunId = new Map<string, Map<string, string>>();
+    const selectedFramesByRunId = new Map<
+        string,
+        Map<
+            string,
+            {
+                dataUrl: string;
+                index: number;
+                timestampMs: number;
+            }[]
+        >
+    >();
     // 当 tools 内部 emit 一个 sequence=0 的事件(说明没有 sequence 来源),
     // 我们用 lastSequences 统一分配递增 sequence,跟 graph node 事件保持单调。
     const lastSequences = new Map<string, number>();
@@ -675,10 +721,50 @@ export const createLangGraphVideoAgentController = ({
         return `${scope}_${runId}`;
     };
 
+    const rememberKeyframes = (
+        runId: string,
+        assetId: string,
+        keyframes: {
+            dataUrl: string;
+            index: number;
+            timestampMs: number;
+        }[]
+    ) => {
+        let perAsset = keyframesByRunId.get(runId);
+
+        if (!perAsset) {
+            perAsset = new Map();
+            keyframesByRunId.set(runId, perAsset);
+        }
+        perAsset.set(assetId, keyframes);
+    };
+    const rememberFileName = (
+        runId: string,
+        assetId: string,
+        fileName: string
+    ) => {
+        let perAsset = fileNameByRunId.get(runId);
+
+        if (!perAsset) {
+            perAsset = new Map();
+            fileNameByRunId.set(runId, perAsset);
+        }
+        perAsset.set(assetId, fileName);
+    };
+    const getFileName = (runId: string, assetId: string) =>
+        fileNameByRunId.get(runId)?.get(assetId);
+
     const emitGraphEvent = (event: AgentRunEvent) => {
         const state = runs.get(event.runId);
 
         if (!state) return;
+
+        // 缓存 scan 阶段的 keyframes + fileName,供后续 analyzeAsset 使用。
+        // 必须在分配 sequence 之前做,确保 cache miss 时不会 race。
+        if (event.type === 'asset_scan_progress') {
+            rememberKeyframes(event.runId, event.assetId, event.keyframes);
+            rememberFileName(event.runId, event.assetId, event.fileName);
+        }
 
         // graph node 已经填了 sequence 的事件原样用;否则用 lastSequences
         // 分配一个递增 sequence(主要给 tools 内部 emit 用)。
@@ -1058,6 +1144,162 @@ export const createLangGraphVideoAgentController = ({
             return success({
                 runId
             });
+        },
+        reportSelectedFrames: async (rawInput) => {
+            const input = {
+                assetId: rawInput.assetId.trim(),
+                frames: rawInput.frames,
+                runId: rawInput.runId.trim()
+            };
+
+            if (!input.runId || !input.assetId) {
+                return failure({
+                    code: 'VALIDATION_FAILED',
+                    message: '缺少 runId 或 assetId'
+                });
+            }
+            if (input.frames.length === 0) {
+                return failure({
+                    code: 'VALIDATION_FAILED',
+                    message: '至少需要选中 1 张代表帧'
+                });
+            }
+
+            let perAsset = selectedFramesByRunId.get(input.runId);
+
+            if (!perAsset) {
+                perAsset = new Map();
+                selectedFramesByRunId.set(input.runId, perAsset);
+            }
+            perAsset.set(input.assetId, input.frames);
+
+            return success({
+                runId: input.runId
+            });
+        },
+        analyzeAsset: async (rawInput, emit) => {
+            const input = {
+                assetId: rawInput.assetId.trim(),
+                runId: rawInput.runId.trim()
+            };
+
+            if (!input.runId || !input.assetId) {
+                return failure({
+                    code: 'VALIDATION_FAILED',
+                    message: '缺少 runId 或 assetId'
+                });
+            }
+
+            const runState = runs.get(input.runId);
+
+            if (!runState) {
+                return failure({
+                    code: 'RUN_FAILED',
+                    message: '未找到对应的智能体任务'
+                });
+            }
+
+            // 优先用用户实时推过来的代表帧;没推过就 fallback 到 scan 全量
+            // (按 frameCount 截前 N,默认 3)。无论哪种都得 > 0。
+            const selected =
+                selectedFramesByRunId.get(input.runId)?.get(input.assetId);
+            const allKeyframes =
+                keyframesByRunId.get(input.runId)?.get(input.assetId) ?? [];
+            const frames =
+                selected && selected.length > 0
+                    ? selected
+                    : allKeyframes.slice(0, 3);
+
+            if (frames.length === 0) {
+                return failure({
+                    code: 'VALIDATION_FAILED',
+                    message: '该资产还没有可用的关键帧,请先等待抽帧完成'
+                });
+            }
+
+            const providers = getProviders();
+            const modelProvider = providers.modelProvider;
+
+            if (!modelProvider.describeImages) {
+                return failure({
+                    code: 'RUN_FAILED',
+                    message: '当前模型不支持多模态画面理解'
+                });
+            }
+
+            const fileName =
+                getFileName(input.runId, input.assetId) ?? input.assetId;
+            const startedAt = now();
+            const sequence = (lastSequences.get(input.runId) ?? 0) + 1;
+
+            lastSequences.set(input.runId, sequence);
+            activeEmitters.get(input.runId)?.({
+                assetId: input.assetId,
+                createdAt: startedAt,
+                fileName,
+                promptMatchReason: '',
+                promptMatchScore: 0,
+                runId: input.runId,
+                sequence,
+                type: 'asset_understood',
+                understanding: {
+                    actions: [],
+                    description: '正在调用多模态模型…',
+                    mood: '',
+                    objects: [],
+                    suggestedSceneType: ''
+                }
+            } as DesktopAgentRunEvent);
+
+            try {
+                const described = await modelProvider.describeImages({
+                    frames,
+                    userPrompt: runState.input.prompt
+                });
+
+                const completedAt = now();
+                const completedSequence =
+                    (lastSequences.get(input.runId) ?? sequence) + 1;
+
+                lastSequences.set(input.runId, completedSequence);
+                activeEmitters.get(input.runId)?.({
+                    assetId: input.assetId,
+                    createdAt: completedAt,
+                    fileName,
+                    promptMatchReason: described.promptMatchReason,
+                    promptMatchScore: described.promptMatchScore,
+                    runId: input.runId,
+                    sequence: completedSequence,
+                    type: 'asset_understood',
+                    understanding: {
+                        actions: described.actions,
+                        description: described.description,
+                        mood: described.mood,
+                        objects: described.objects,
+                        suggestedSceneType: described.suggestedSceneType
+                    }
+                } as DesktopAgentRunEvent);
+
+                return success({
+                    runId: input.runId
+                });
+            } catch (error) {
+                // 失败降级:不阻塞后续节点,console.warn 留痕,返回失败
+                // 但不 emit 失败事件(用户卡片依然保持原 description 透传)。
+                // eslint-disable-next-line no-console
+                console.warn(
+                    `[analyzeAsset] 多模态理解失败 ${fileName}: ${
+                        error instanceof Error
+                            ? error.message
+                            : String(error)
+                    }`
+                );
+
+                return failure({
+                    code: 'RUN_FAILED',
+                    message: `画面理解失败:${serializeError(error)}`
+                });
+            }
         }
     };
 };
@@ -1096,6 +1338,18 @@ export const registerVideoAgentIpc = ({
     ipcMain.handle(videoAgentIpcChannels.regenerateVoices, (event, input) =>
         controller.regenerateVoices(
             input as VideoAgentRegenerateVoicesInput,
+            emitToRenderer(event)
+        )
+    );
+    ipcMain.handle(videoAgentIpcChannels.reportSelectedFrames, (event, input) =>
+        controller.reportSelectedFrames(
+            input as VideoAgentReportSelectedFramesInput,
+            emitToRenderer(event)
+        )
+    );
+    ipcMain.handle(videoAgentIpcChannels.analyzeAsset, (event, input) =>
+        controller.analyzeAsset(
+            input as VideoAgentAnalyzeAssetInput,
             emitToRenderer(event)
         )
     );

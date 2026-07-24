@@ -5,7 +5,9 @@ import type { AgentConversationMessage } from '@wise-cut/video-project';
 
 import type {
     DesktopAgentRunEvent,
+    VideoAgentAnalyzeAssetInput,
     VideoAgentOperationResult,
+    VideoAgentReportSelectedFramesInput,
     VideoAgentResultData,
     VideoAgentStartInput
 } from '../../shared/video-agent';
@@ -234,6 +236,38 @@ export const cancelAgentRun = async (runId: string) => {
     });
 
     return window.miaomaAPI.videoAgent.cancel({ runId });
+};
+
+export const reportSelectedFrames = (
+    input: VideoAgentReportSelectedFramesInput
+) => {
+    if (typeof window === 'undefined' || !window.miaomaAPI?.videoAgent) {
+        return Promise.resolve({
+            error: {
+                code: 'RUN_FAILED' as const,
+                message: '智能体接口尚未就绪'
+            },
+            success: false as const
+        });
+    }
+
+    return window.miaomaAPI.videoAgent.reportSelectedFrames(input);
+};
+
+export const analyzeAsset = (
+    input: VideoAgentAnalyzeAssetInput
+): Promise<VideoAgentOperationResult<VideoAgentResultData>> => {
+    if (typeof window === 'undefined' || !window.miaomaAPI?.videoAgent) {
+        return Promise.resolve({
+            error: {
+                code: 'RUN_FAILED' as const,
+                message: '智能体接口尚未就绪'
+            },
+            success: false as const
+        });
+    }
+
+    return window.miaomaAPI.videoAgent.analyzeAsset(input);
 };
 
 export const getAgentRunSnapshot = (runId?: string): AgentRunSnapshot => {

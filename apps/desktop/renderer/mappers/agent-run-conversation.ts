@@ -699,6 +699,101 @@ export const createAgentConversationViewModel = ({
 
             return;
         }
+
+        if (event.type === 'asset_understood') {
+            // 画面理解结果(多模态):绿色"已完成"卡片 + key-values 摘要
+            // (description / mood / objects / actions / suggestedSceneType /
+            // 匹配度)。pending 阶段(description === "正在调用多模态模型…")
+            // 显示 running 提示,完成后变 completed。
+            const isPending =
+                event.understanding.description === '正在调用多模态模型…';
+            const message = createMessage({
+                blocks: [
+                    {
+                        items: [
+                            {
+                                key: '画面描述',
+                                value: event.understanding.description
+                            },
+                            ...(event.understanding.mood
+                                ? [
+                                      {
+                                          key: '整体氛围',
+                                          value: event.understanding.mood
+                                      }
+                                  ]
+                                : []),
+                            ...(event.understanding.suggestedSceneType
+                                ? [
+                                      {
+                                          key: '建议分镜',
+                                          value: event.understanding
+                                              .suggestedSceneType
+                                      }
+                                  ]
+                                : []),
+                            ...(event.understanding.objects.length > 0
+                                ? [
+                                      {
+                                          key: '关键物体',
+                                          value: event.understanding.objects.join(
+                                              '、'
+                                          )
+                                      }
+                                  ]
+                                : []),
+                            ...(event.understanding.actions.length > 0
+                                ? [
+                                      {
+                                          key: '关键动作',
+                                          value: event.understanding.actions.join(
+                                              '、'
+                                          )
+                                      }
+                                  ]
+                                : []),
+                            ...(event.promptMatchScore > 0
+                                ? [
+                                      {
+                                          key: '匹配度',
+                                          value: `${(
+                                              event.promptMatchScore * 100
+                                          ).toFixed(0)}%${event.promptMatchReason ? ` · ${event.promptMatchReason}` : ''}`
+                                      }
+                                  ]
+                                : [])
+                        ],
+                        type: 'key-values'
+                    }
+                ],
+                content: isPending
+                    ? `正在进行 ${event.fileName} 的画面理解`
+                    : `已完成 ${event.fileName} 的画面理解`,
+                createdAt: event.createdAt,
+                role: 'assistant',
+                sequence: event.sequence,
+                sourceEventType: 'asset_understood',
+                tone: isPending ? 'running' : 'completed'
+            });
+
+            const existing = keyframeMessagesByAssetId.get(event.assetId);
+
+            if (existing) {
+                // 跟 KeyframesMessage 同源覆盖 — 找到之前的同 assetId keyframes 消息,
+                // 把它替换成 understood 卡片,让时间线更紧凑。
+                const index = messages.indexOf(existing);
+
+                if (index >= 0) {
+                    messages[index] = message;
+                }
+                keyframeMessagesByAssetId.set(event.assetId, message);
+            } else {
+                keyframeMessagesByAssetId.set(event.assetId, message);
+                messages.push(message);
+            }
+
+            return;
+        }
     });
 
     const latestEvent = sortedEvents.at(-1);

@@ -5,6 +5,10 @@ import type {
     AssetKeyframesViewModel,
     KeyframeViewModel
 } from '../../mappers/agent-run-conversation';
+import {
+    analyzeAsset,
+    reportSelectedFrames
+} from '../../stores/agent-run-store';
 import { cx } from '../../utils/classNames';
 
 const formatTimestamp = (ms: number) => {
@@ -23,6 +27,11 @@ const pickDefaultIndices = (totalFrames: number) => {
 };
 
 const MAX_SELECTED = 5;
+
+export type KeyframesMessageProps = {
+    asset: AssetKeyframesViewModel;
+    runId: string;
+};
 
 const KeyframeThumb = ({
     frame,
@@ -70,16 +79,16 @@ const KeyframeThumb = ({
     );
 };
 
-export const KeyframesMessage = ({
-    asset
-}: {
-    asset: AssetKeyframesViewModel;
-}) => {
+export const KeyframesMessage = ({ asset, runId }: KeyframesMessageProps) => {
     // 默认选 3 张(首/中/末)。frames 变化时若用户没改过,重置默认。
     const [selectedIndices, setSelectedIndices] = useState<Set<number>>(
         () => new Set(pickDefaultIndices(asset.frames.length))
     );
     const [hasUserTouched, setHasUserTouched] = useState(false);
+    const [analyzeState, setAnalyzeState] = useState<
+        'idle' | 'pending' | 'succeeded' | 'failed'
+    >('idle');
+    const [analyzeError, setAnalyzeError] = useState<string | null>(null);
 
     useEffect(() => {
         // 当 frames 数量变化(后续 progress 事件追加新帧)时,如果用户没动过,
@@ -97,8 +106,31 @@ export const KeyframesMessage = ({
         [selectedIndices]
     );
 
+    const selectedFrames = useMemo(
+        () =>
+            sortedSelection
+                .map((index) => asset.frames.find((f) => f.index === index))
+                .filter((frame): frame is KeyframeViewModel => Boolean(frame)),
+        [sortedSelection, asset.frames]
+    );
+
+    // 选中变化时实时推给主进程(去抖 — 用 sortedSelection 引用即可,
+    // React 的 useEffect 已经天然合并同一帧内多次变更)。
+    useEffect(() => {
+        if (selectedFrames.length === 0) return;
+
+        void reportSelectedFrames({
+            assetId: asset.assetId,
+            frames: selectedFrames,
+            runId
+        });
+    }, [asset.assetId, runId, selectedFrames]);
+
     const handleSelect = (index: number) => {
         setHasUserTouched(true);
+        // 用户改选择时重置按钮状态(允许重新理解)
+        setAnalyzeState('idle');
+        setAnalyzeError(null);
         setSelectedIndices((current) => {
             const next = new Set(current);
 
@@ -116,6 +148,27 @@ export const KeyframesMessage = ({
         });
     };
 
+    const handleAnalyze = async () => {
+        if (selectedFrames.length === 0) return;
+
+        setAnalyzeState('pending');
+        setAnalyzeError(null);
+
+        const result = await analyzeAsset({
+            assetId: asset.assetId,
+            runId
+        });
+
+        if (result.success) {
+            setAnalyzeState('succeeded');
+        } else {
+            setAnalyzeState('failed');
+            setAnalyzeError(
+                'error' in result ? result.error.message : '画面理解失败'
+            );
+        }
+    };
+
     const orderedSelectionMap = useMemo(() => {
         const map = new Map<number, number>();
 
@@ -125,6 +178,19 @@ export const KeyframesMessage = ({
 
         return map;
     }, [sortedSelection]);
+
+    const buttonLabel = (() => {
+        switch (analyzeState) {
+            case 'pending':
+                return '理解中…';
+            case 'succeeded':
+                return '✓ 已完成';
+            case 'failed':
+                return '重试理解';
+            default:
+                return '开始理解 →';
+        }
+    })();
 
     return (
         <div
@@ -166,9 +232,37 @@ export const KeyframesMessage = ({
                     />
                 ))}
             </div>
-            <p className="text-[10.5px] font-[400] leading-none text-[#737C8C]">
-                点击缩略图选中/取消 · 默认选首/中/末 3 张 · 上限 5 张
-            </p>
+            <div className="flex items-center justify-between gap-2">
+                <p className="text-[10.5px] font-[400] leading-none text-[#737C8C]">
+                    点击缩略图选中/取消 · 默认选首/中/末 3 张 · 上限 5 张
+                </p>
+                <button
+                    type="button"
+                    data-keyframes-analyze-button="true"
+                    onClick={handleAnalyze}
+                    disabled={
+                        selectedFrames.length === 0 || analyzeState === 'pending'
+                    }
+                    className={cx(
+                        'h-7 shrink-0 rounded-[6px] px-3 text-[11.5px] font-[700] leading-none transition-all duration-150',
+                        analyzeState === 'succeeded'
+                            ? 'bg-[#25D0B1]/15 text-[#25D0B1]'
+                            : analyzeState === 'failed'
+                              ? 'bg-[#F05F73]/15 text-[#F05F73] hover:bg-[#F05F73]/25'
+                              : 'bg-[#5B8CFF] text-white hover:bg-[#7BA0FF] disabled:cursor-not-allowed disabled:opacity-50'
+                    )}
+                >
+                    {buttonLabel}
+                </button>
+            </div>
+            {analyzeError ? (
+                <p
+                    data-keyframes-analyze-error="true"
+                    className="text-[10.5px] font-[500] leading-[14px] text-[#F05F73]"
+                >
+                    {analyzeError}
+                </p>
+            ) : null}
         </div>
     );
 };

@@ -7,10 +7,12 @@ import type { CustomVoiceImportInput } from '../shared/custom-voice';
 import { customVoiceIpcChannels } from '../shared/custom-voice-channels';
 import type {
     DesktopAgentRunEvent,
+    VideoAgentAnalyzeAssetInput,
     VideoAgentApprovalInput,
     VideoAgentCancelInput,
     VideoAgentRegenerateSceneInput,
     VideoAgentRegenerateVoicesInput,
+    VideoAgentReportSelectedFramesInput,
     VideoAgentStartInput
 } from '../shared/video-agent';
 import { videoAgentIpcChannels } from '../shared/video-agent-channels';
@@ -58,6 +60,8 @@ contextBridge.exposeInMainWorld('miaomaAPI', {
             ipcRenderer.invoke(videoExportIpcChannels.selectOutputPath, input)
     },
     videoAgent: {
+        analyzeAsset: async (input: VideoAgentAnalyzeAssetInput) =>
+            ipcRenderer.invoke(videoAgentIpcChannels.analyzeAsset, input),
         approve: async (input: VideoAgentApprovalInput) =>
             ipcRenderer.invoke(videoAgentIpcChannels.approve, input),
         cancel: async (input: VideoAgentCancelInput) =>
@@ -83,6 +87,9 @@ contextBridge.exposeInMainWorld('miaomaAPI', {
             ipcRenderer.invoke(videoAgentIpcChannels.regenerateScene, input),
         regenerateVoices: async (input: VideoAgentRegenerateVoicesInput) =>
             ipcRenderer.invoke(videoAgentIpcChannels.regenerateVoices, input),
+        reportSelectedFrames: async (
+            input: VideoAgentReportSelectedFramesInput
+        ) => ipcRenderer.invoke(videoAgentIpcChannels.reportSelectedFrames, input),
         start: async (input: VideoAgentStartInput) =>
             ipcRenderer.invoke(videoAgentIpcChannels.start, input)
     },

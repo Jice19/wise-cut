@@ -70,4 +70,18 @@ export type AgentRunEvent =
           totalCompleted: number;
           totalScanned: number;
           type: 'asset_scan_progress';
+      })
+    | (AgentRunEventBase & {
+          assetId: string;
+          fileName: string;
+          promptMatchReason: string;
+          promptMatchScore: number;
+          type: 'asset_understood';
+          understanding: {
+              actions: string[];
+              description: string;
+              mood: string;
+              objects: string[];
+              suggestedSceneType: string;
+          };
       });

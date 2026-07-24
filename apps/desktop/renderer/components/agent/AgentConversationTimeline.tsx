@@ -375,9 +375,11 @@ const TablePreview = ({ table }: { table: TableBlock }) => (
 );
 
 const AssetKeyframesMessage = ({
-    message
+    message,
+    runId
 }: {
     message: AgentConversationMessage;
+    runId?: string;
 }) => {
     const paragraphs = getParagraphs(message);
     const keyframesBlocks = message.blocks?.filter(
@@ -405,9 +407,63 @@ const AssetKeyframesMessage = ({
                             fileName: asset.fileName,
                             frames: asset.frames
                         }}
+                        runId={runId ?? ''}
                     />
                 ))
             )}
+        </article>
+    );
+};
+
+const AssetUnderstoodMessage = ({
+    message
+}: {
+    message: AgentConversationMessage;
+}) => {
+    const keyValues = message.blocks?.find(
+        (block): block is KeyValuesBlock => block.type === 'key-values'
+    );
+
+    return (
+        <article
+            data-message-kind="asset-understood"
+            className="flex w-[860px] flex-col gap-2 rounded-[14px] border border-[#1D5747] bg-[#0F1A16] p-4"
+        >
+            <div className="flex items-center gap-2">
+                <span
+                    className={cx(
+                        'h-2 w-2 rounded-full',
+                        message.tone === 'running'
+                            ? 'bg-[#F6B84B]'
+                            : 'bg-[#25D0B1]'
+                    )}
+                />
+                <h2
+                    className={cx(
+                        'text-[13px] font-[700] leading-none',
+                        message.tone === 'running'
+                            ? 'text-[#F6B84B]'
+                            : 'text-[#25D0B1]'
+                    )}
+                >
+                    {message.content}
+                </h2>
+            </div>
+            {keyValues && keyValues.items.length > 0 ? (
+                <div className="flex flex-col gap-1.5">
+                    {keyValues.items.map((item) => (
+                        <div
+                            key={item.key}
+                            className="flex items-start gap-2 text-[12px] leading-[18px]"
+                        >
+                            <span className="shrink-0 text-[#737C8C]">
+                                {item.key}
+                            </span>
+                            <span className="text-[#DCE2EA]">{item.value}</span>
+                        </div>
+                    ))}
+                </div>
+            ) : null}
         </article>
     );
 };
@@ -588,13 +644,15 @@ const renderMessage = ({
     editorHref,
     message,
     onApprove,
-    onCancel
+    onCancel,
+    runId
 }: {
     canApprove: boolean;
     editorHref?: string;
     message: AgentConversationMessage;
     onApprove?: () => void;
     onCancel?: () => void;
+    runId?: string;
 }) => {
     if (message.sourceEventType === 'run.started') {
         return <UserRequestMessage message={message} />;
@@ -634,7 +692,11 @@ const renderMessage = ({
     }
 
     if (message.sourceEventType === 'asset_scan_progress') {
-        return <AssetKeyframesMessage message={message} />;
+        return <AssetKeyframesMessage message={message} runId={runId} />;
+    }
+
+    if (message.sourceEventType === 'asset_understood') {
+        return <AssetUnderstoodMessage message={message} />;
     }
 
     if (message.role === 'assistant') {
@@ -651,10 +713,12 @@ const renderMessage = ({
 export const AgentConversationTimeline = ({
     onApprove,
     onCancel,
+    runId,
     viewModel
 }: {
     onApprove?: () => void;
     onCancel?: () => void;
+    runId?: string;
     viewModel: AgentConversationViewModel;
 }) => {
     return (
@@ -672,7 +736,8 @@ export const AgentConversationTimeline = ({
                             editorHref: viewModel.editorHref,
                             message,
                             onApprove,
-                            onCancel
+                            onCancel,
+                            runId
                         })}
                     </div>
                 ))

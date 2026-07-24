@@ -46,6 +46,11 @@ export {
     buildCreativeBriefPrompt,
     CreativeBriefSchema
 } from './prompts/creative-brief';
+export {
+    buildDescribeImagesPrompt,
+    DescribedImageSchema
+} from './prompts/describe-images';
+export type { DescribedImage } from './prompts/describe-images';
 export type {
     FrameDescription,
     FrameDescriptionInput

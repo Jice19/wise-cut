@@ -69,6 +69,7 @@ export const MiaojianCreateRunScreen = ({ runId }: { runId?: string }) => {
                     <AgentConversationTimeline
                         onApprove={handleApprove}
                         onCancel={handleCancel}
+                        runId={resolvedRunId}
                         viewModel={snapshot.viewModel}
                     />
                 </div>

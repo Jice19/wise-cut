@@ -15,11 +15,13 @@ import type {
 } from './shared/custom-voice';
 import type {
     DesktopAgentRunEvent,
+    VideoAgentAnalyzeAssetInput,
     VideoAgentApprovalInput,
     VideoAgentCancelInput,
     VideoAgentOperationResult,
     VideoAgentRegenerateSceneInput,
     VideoAgentRegenerateVoicesInput,
+    VideoAgentReportSelectedFramesInput,
     VideoAgentResultData,
     VideoAgentStartInput
 } from './shared/video-agent';
@@ -57,6 +59,9 @@ declare global {
                 ) => Promise<VideoExportOperationResult>;
             };
             videoAgent: {
+                analyzeAsset: (
+                    input: VideoAgentAnalyzeAssetInput
+                ) => Promise<VideoAgentOperationResult<VideoAgentResultData>>;
                 approve: (
                     input: VideoAgentApprovalInput
                 ) => Promise<VideoAgentOperationResult<VideoAgentResultData>>;
@@ -71,6 +76,9 @@ declare global {
                 ) => Promise<VideoAgentOperationResult<VideoAgentResultData>>;
                 regenerateVoices: (
                     input: VideoAgentRegenerateVoicesInput
+                ) => Promise<VideoAgentOperationResult<VideoAgentResultData>>;
+                reportSelectedFrames: (
+                    input: VideoAgentReportSelectedFramesInput
                 ) => Promise<VideoAgentOperationResult<VideoAgentResultData>>;
                 start: (
                     input: VideoAgentStartInput

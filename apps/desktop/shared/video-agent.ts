@@ -48,6 +48,21 @@ export type VideoAgentRegenerateVoicesInput = {
     voiceVolume?: number;
 };
 
+export type VideoAgentReportSelectedFramesInput = {
+    assetId: string;
+    frames: {
+        dataUrl: string;
+        index: number;
+        timestampMs: number;
+    }[];
+    runId: string;
+};
+
+export type VideoAgentAnalyzeAssetInput = {
+    assetId: string;
+    runId: string;
+};
+
 export type VideoAgentResultData = {
     projectId?: string;
     runId: string;
@@ -163,4 +178,18 @@ export type DesktopAgentRunEvent =
           totalCompleted: number;
           totalScanned: number;
           type: 'asset_scan_progress';
+      })
+    | (DesktopAgentRunEventBase & {
+          assetId: string;
+          fileName: string;
+          promptMatchReason: string;
+          promptMatchScore: number;
+          type: 'asset_understood';
+          understanding: {
+              actions: string[];
+              description: string;
+              mood: string;
+              objects: string[];
+              suggestedSceneType: string;
+          };
       });

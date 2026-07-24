@@ -1,5 +1,5 @@
 /* */
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ZodType } from 'zod';
 
 import type { AgentEnv } from '../src/config/load-agent-env';
@@ -395,5 +395,213 @@ describe('ArkChatModelProvider', () => {
         );
         expect(brief.title).toBe('智剪产品发布');
         expectJsonSchemaCall(model);
+    });
+
+    describe('describeImages (multimodal)', () => {
+        const makeFetchMock = ({
+            response,
+            status = 200
+        }: {
+            response: unknown;
+            status?: number;
+        }): {
+            calls: { body: string; init: RequestInit | undefined }[];
+            mock: typeof fetch;
+        } => {
+            const calls: { body: string; init: RequestInit | undefined }[] = [];
+            const mock = (async (
+                _input: Parameters<typeof fetch>[0],
+                init?: Parameters<typeof fetch>[1]
+            ) => {
+                calls.push({
+                    body: typeof init?.body === 'string' ? init.body : '',
+                    init
+                });
+
+                return {
+                    json: async () => response,
+                    ok: status >= 200 && status < 300,
+                    status,
+                    text: async () => JSON.stringify(response)
+                } as Response;
+            }) as typeof fetch;
+
+            return { calls, mock };
+        };
+
+        const buildProvider = (fetchImpl: typeof fetch) =>
+            new ArkChatModelProvider({
+                env: agentEnv,
+                fetchImpl
+            });
+
+        afterEach(() => {
+            vi.unstubAllGlobals();
+        });
+
+        it('posts multimodal request to /chat/completions with json_object response_format', async () => {
+            const { calls, mock } = makeFetchMock({
+                response: {
+                    choices: [
+                        {
+                            message: {
+                                content: JSON.stringify({
+                                    actions: ['敲键盘'],
+                                    description: '开发者正在专注写代码',
+                                    mood: '专注专业',
+                                    objects: ['笔记本', '屏幕'],
+                                    promptMatchReason:
+                                        '画面跟"教程演示"主题高度相关',
+                                    promptMatchScore: 0.87,
+                                    suggestedSceneType: '教程演示'
+                                })
+                            }
+                        }
+                    ]
+                }
+            });
+
+            const provider = buildProvider(mock);
+            const result = await provider.describeImages({
+                frames: [
+                    {
+                        dataUrl: 'data:image/jpeg;base64,AAA',
+                        index: 0,
+                        timestampMs: 0
+                    },
+                    {
+                        dataUrl: 'data:image/jpeg;base64,BBB',
+                        index: 2,
+                        timestampMs: 4000
+                    }
+                ],
+                userPrompt: '做一条教程演示视频'
+            });
+
+            expect(result.description).toBe('开发者正在专注写代码');
+            expect(result.mood).toBe('专注专业');
+            expect(result.objects).toEqual(['笔记本', '屏幕']);
+            expect(result.actions).toEqual(['敲键盘']);
+            expect(result.suggestedSceneType).toBe('教程演示');
+            expect(result.promptMatchScore).toBeCloseTo(0.87);
+
+            expect(calls).toHaveLength(1);
+            const [call] = calls;
+            expect(call.init?.method).toBe('POST');
+            expect(call.init?.headers).toMatchObject({
+                Authorization: 'Bearer test-provider-token',
+                'Content-Type': 'application/json'
+            });
+            const body = JSON.parse(call.body);
+            expect(body.model).toBe('doubao-seed-2.0-pro');
+            expect(body.response_format).toEqual({ type: 'json_object' });
+            expect(body.temperature).toBe(0.4);
+            expect(body.stream).toBe(false);
+            expect(body.messages[0].role).toBe('user');
+            // 1 段 text + 2 张 image_url
+            expect(body.messages[0].content).toHaveLength(3);
+            expect(body.messages[0].content[0]).toMatchObject({
+                text: expect.stringContaining('做一条教程演示视频'),
+                type: 'text'
+            });
+            expect(body.messages[0].content[1]).toMatchObject({
+                image_url: { url: 'data:image/jpeg;base64,AAA' },
+                type: 'image_url'
+            });
+        });
+
+        it('throws when no frames are provided', async () => {
+            const { mock } = makeFetchMock({ response: { choices: [] } });
+            const provider = buildProvider(mock);
+
+            await expect(
+                provider.describeImages({
+                    frames: [],
+                    userPrompt: '做一条教程演示视频'
+                })
+            ).rejects.toThrow('至少 1 张关键帧');
+        });
+
+        it('throws ModelProviderSchemaError when response fails Zod validation', async () => {
+            const { mock } = makeFetchMock({
+                response: {
+                    choices: [
+                        {
+                            message: {
+                                content: JSON.stringify({
+                                    actions: [],
+                                    description: 'x',
+                                    mood: '',
+                                    objects: [],
+                                    promptMatchReason: 'too short',
+                                    promptMatchScore: 2,
+                                    suggestedSceneType: ''
+                                })
+                            }
+                        }
+                    ]
+                }
+            });
+            const provider = buildProvider(mock);
+
+            await expect(
+                provider.describeImages({
+                    frames: [
+                        {
+                            dataUrl: 'data:image/jpeg;base64,AAA',
+                            index: 0,
+                            timestampMs: 0
+                        }
+                    ],
+                    userPrompt: '做一条教程演示视频'
+                })
+            ).rejects.toBeInstanceOf(ModelProviderSchemaError);
+        });
+
+        it('throws HTTP-aware error when fetch returns non-2xx', async () => {
+            const { mock } = makeFetchMock({
+                response: {
+                    error: {
+                        code: 'InvalidParameter',
+                        message: 'image too small'
+                    }
+                },
+                status: 400
+            });
+            const provider = buildProvider(mock);
+
+            await expect(
+                provider.describeImages({
+                    frames: [
+                        {
+                            dataUrl: 'data:image/jpeg;base64,AAA',
+                            index: 0,
+                            timestampMs: 0
+                        }
+                    ],
+                    userPrompt: '做一条教程演示视频'
+                })
+            ).rejects.toThrow(/HTTP 400/);
+        });
+
+        it('throws when response content is empty', async () => {
+            const { mock } = makeFetchMock({
+                response: { choices: [{ message: { content: '' } }] }
+            });
+            const provider = buildProvider(mock);
+
+            await expect(
+                provider.describeImages({
+                    frames: [
+                        {
+                            dataUrl: 'data:image/jpeg;base64,AAA',
+                            index: 0,
+                            timestampMs: 0
+                        }
+                    ],
+                    userPrompt: '做一条教程演示视频'
+                })
+            ).rejects.toThrow('返回内容为空');
+        });
     });
 });
