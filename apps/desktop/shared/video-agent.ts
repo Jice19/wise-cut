@@ -151,4 +151,16 @@ export type DesktopAgentRunEvent =
     | (DesktopAgentRunEventBase & {
           reason?: string;
           type: 'run.cancelled';
+      })
+    | (DesktopAgentRunEventBase & {
+          assetId: string;
+          fileName: string;
+          keyframes: {
+              dataUrl: string;
+              index: number;
+              timestampMs: number;
+          }[];
+          totalCompleted: number;
+          totalScanned: number;
+          type: 'asset_scan_progress';
       });

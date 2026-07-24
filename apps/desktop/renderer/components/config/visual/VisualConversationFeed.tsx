@@ -169,6 +169,19 @@ const ConversationBlockView = ({
         return <ProgressBlockView block={block} />;
     }
 
+    if (block.type === 'keyframes') {
+        return (
+            <div className="rounded-[10px] border border-[#252B35] bg-[#0D1015] p-3 text-[12px] leading-[18px] text-[#C9D0DA]">
+                已抽取关键帧：{block.assets.length} 段视频 ·{' '}
+                {block.assets.reduce(
+                    (total, asset) => total + asset.frames.length,
+                    0
+                )}{' '}
+                帧
+            </div>
+        );
+    }
+
     return <TableBlockView block={block} />;
 };
 

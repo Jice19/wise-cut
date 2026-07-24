@@ -4,6 +4,8 @@ import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { app } from 'electron';
+
 import {
     type AgentEnv,
     type AgentRunEvent,
@@ -38,6 +40,7 @@ import {
     isVoiceRegenerationCancelled,
     regenerateVideoProjectVoices
 } from './video-agent-voice-regeneration';
+import { resolveVideoExportBinaries } from './video-export-binaries';
 import type { VideoProjectStore } from './video-project-store';
 
 export { videoAgentIpcChannels };
@@ -646,6 +649,9 @@ export const createLangGraphVideoAgentController = ({
     const activeEmitters = new Map<string, VideoAgentEventEmitter>();
     const runs = new Map<string, LangGraphVideoAgentRunState>();
     const voiceRegenerationRuns = new Map<string, VoiceRegenerationRunState>();
+    // 当 tools 内部 emit 一个 sequence=0 的事件(说明没有 sequence 来源),
+    // 我们用 lastSequences 统一分配递增 sequence,跟 graph node 事件保持单调。
+    const lastSequences = new Map<string, number>();
     const getSelectedVoice = (runId: string) =>
         runs.get(runId)?.input.selectedVoice;
     const getSelectedVoiceType = (runId: string) =>
@@ -674,9 +680,21 @@ export const createLangGraphVideoAgentController = ({
 
         if (!state) return;
 
-        state.sequence = event.sequence;
+        // graph node 已经填了 sequence 的事件原样用;否则用 lastSequences
+        // 分配一个递增 sequence(主要给 tools 内部 emit 用)。
+        let sequence = event.sequence;
+
+        if (sequence === 0) {
+            sequence = (lastSequences.get(event.runId) ?? 0) + 1;
+        }
+
+        lastSequences.set(event.runId, sequence);
+        state.sequence = sequence;
         activeEmitters.get(event.runId)?.(
-            toDesktopGraphEvent({ event, state })
+            toDesktopGraphEvent({
+                event: { ...event, sequence },
+                state
+            })
         );
     };
     let providers: ProviderFactoryResult | undefined;
@@ -707,9 +725,41 @@ export const createLangGraphVideoAgentController = ({
 
         const runnerProviders = getProviders();
 
+        // Resolve the bundled ffprobe path so scanAssets can probe real
+        // metadata for each source video. Without this, the agent falls
+        // back to a placeholder duration, which misleads both the AI
+        // matcher and the timeline assembler.
+        let ffprobePath: string | undefined;
+        let ffmpegPath: string | undefined;
+        try {
+            const binaries = resolveVideoExportBinaries({
+                appPath: app.getAppPath(),
+                isPackaged: app.isPackaged,
+                platform: process.platform as
+                    | 'darwin'
+                    | 'linux'
+                    | 'win32',
+                resourcesPath: process.resourcesPath
+            });
+            if (existsSync(binaries.ffprobePath)) {
+                ffprobePath = binaries.ffprobePath;
+            }
+            if (existsSync(binaries.ffmpegPath)) {
+                ffmpegPath = binaries.ffmpegPath;
+            }
+        } catch {
+            // Running outside Electron (e.g. unit tests) — ffprobePath
+            // stays undefined and scanAssets uses its placeholder path.
+        }
+
         runner = createVideoCreationGraph({
             emit: emitGraphEvent,
             tools: createDesktopVideoAgentTools({
+                // 工具 emit 的 asset_scan_progress 走 graph 的 emit 通道,
+                // 跟节点事件共享同一个 sequence 计数器,避免乱序。
+                emit: emitGraphEvent,
+                ffmpegPath,
+                ffprobePath,
                 getSelectedVoice,
                 getSelectedVoiceType,
                 getVoiceSettings,

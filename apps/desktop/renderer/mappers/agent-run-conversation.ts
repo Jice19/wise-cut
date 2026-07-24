@@ -19,6 +19,18 @@ export type AgentRunConversationEvent =
     | DesktopAgentRunEvent
     | UserReplyConversationEvent;
 
+export type KeyframeViewModel = {
+    dataUrl: string;
+    index: number;
+    timestampMs: number;
+};
+
+export type AssetKeyframesViewModel = {
+    assetId: string;
+    fileName: string;
+    frames: KeyframeViewModel[];
+};
+
 export type AgentConversationViewModel = {
     canApprove: boolean;
     canCancel: boolean;
@@ -308,6 +320,11 @@ export const createAgentConversationViewModel = ({
     const streamMessages = new Map<string, AgentConversationMessage>();
     const progressStatuses = createInitialProgressStatuses();
     let progressMessage: AgentConversationMessage | undefined;
+    // 每段视频一条 keyframes 消息,后到的覆盖先到的(进度追加)。
+    const keyframeMessagesByAssetId = new Map<
+        string,
+        AgentConversationMessage
+    >();
 
     const ensureProgressMessage = (event: AgentRunConversationEvent) => {
         if (progressMessage) return progressMessage;
@@ -518,6 +535,7 @@ export const createAgentConversationViewModel = ({
                     event.type === 'node.failed' ? 'failed' : 'running';
             }
             updateOperationStatusMessage(event);
+
             return;
         }
 
@@ -636,6 +654,50 @@ export const createAgentConversationViewModel = ({
                     tone: 'cancelled'
                 })
             );
+            return;
+        }
+
+        if (event.type === 'asset_scan_progress') {
+            // 为每段视频生成一条 chat 消息。后续同 assetId 进来覆盖。
+            // 选中状态(selectedFrameIndices)由 KeyframesMessage 组件内部
+            // useState 管理,messages 数据本身不带选中。
+            const message = createMessage({
+                blocks: [
+                    {
+                        text: `已抽取 ${event.fileName} 的 ${event.keyframes.length} 帧关键帧，请选择代表帧（默认 3 张，最多 5 张）`,
+                        type: 'paragraph'
+                    },
+                    {
+                        assets: [
+                            {
+                                assetId: event.assetId,
+                                fileName: event.fileName,
+                                frames: event.keyframes
+                            }
+                        ],
+                        type: 'keyframes'
+                    }
+                ],
+                content: `已抽取 ${event.fileName} 的 ${event.keyframes.length} 帧关键帧`,
+                createdAt: event.createdAt,
+                role: 'assistant',
+                sequence: event.sequence,
+                sourceEventType: 'asset_scan_progress',
+                tone: event.totalCompleted === event.totalScanned
+                    ? 'completed'
+                    : 'running'
+            });
+
+            const existing = keyframeMessagesByAssetId.get(event.assetId);
+
+            if (existing) {
+                Object.assign(existing, message);
+            } else {
+                keyframeMessagesByAssetId.set(event.assetId, message);
+                messages.push(message);
+            }
+
+            return;
         }
     });
 

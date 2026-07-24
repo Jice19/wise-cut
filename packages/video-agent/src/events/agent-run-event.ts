@@ -58,4 +58,16 @@ export type AgentRunEvent =
     | (AgentRunEventBase & {
           error: string;
           type: 'run.failed';
+      })
+    | (AgentRunEventBase & {
+          assetId: string;
+          fileName: string;
+          keyframes: {
+              dataUrl: string;
+              index: number;
+              timestampMs: number;
+          }[];
+          totalCompleted: number;
+          totalScanned: number;
+          type: 'asset_scan_progress';
       });

@@ -9,12 +9,14 @@ import type {
 import type { AgentConversationViewModel } from '../../mappers/agent-run-conversation';
 import { cx } from '../../utils/classNames';
 import { Icon } from '../Icon';
+import { KeyframesMessage } from './KeyframesMessage';
 import { ClientRouteLink } from '../workspace/ClientRouteLink';
 
 type KeyValuesBlock = Extract<AgentConversationBlock, { type: 'key-values' }>;
 type ParagraphBlock = Extract<AgentConversationBlock, { type: 'paragraph' }>;
 type ProgressBlock = Extract<AgentConversationBlock, { type: 'progress' }>;
 type TableBlock = Extract<AgentConversationBlock, { type: 'table' }>;
+type KeyframesBlock = Extract<AgentConversationBlock, { type: 'keyframes' }>;
 
 const progressToneClassName = {
     cancelled: {
@@ -372,6 +374,44 @@ const TablePreview = ({ table }: { table: TableBlock }) => (
     </div>
 );
 
+const AssetKeyframesMessage = ({
+    message
+}: {
+    message: AgentConversationMessage;
+}) => {
+    const paragraphs = getParagraphs(message);
+    const keyframesBlocks = message.blocks?.filter(
+        (block): block is KeyframesBlock => block.type === 'keyframes'
+    );
+
+    if (!keyframesBlocks || keyframesBlocks.length === 0) return null;
+
+    return (
+        <article
+            data-message-kind="asset-keyframes"
+            className="flex w-[860px] flex-col gap-3 rounded-[14px] border border-[#2A2F38] bg-[#11141A] p-4"
+        >
+            {paragraphs.length > 0 ? (
+                <p className="text-[13px] font-[400] leading-[20px] text-[#C9D0DA]">
+                    {paragraphs.map((p) => p.text).join('\n')}
+                </p>
+            ) : null}
+            {keyframesBlocks.flatMap((block) =>
+                block.assets.map((asset) => (
+                    <KeyframesMessage
+                        key={asset.assetId}
+                        asset={{
+                            assetId: asset.assetId,
+                            fileName: asset.fileName,
+                            frames: asset.frames
+                        }}
+                    />
+                ))
+            )}
+        </article>
+    );
+};
+
 const ApprovalMessage = ({
     canApprove,
     message,
@@ -591,6 +631,10 @@ const renderMessage = ({
 
     if (getProgressBlock(message)) {
         return <ExecutionPlanMessage message={message} />;
+    }
+
+    if (message.sourceEventType === 'asset_scan_progress') {
+        return <AssetKeyframesMessage message={message} />;
     }
 
     if (message.role === 'assistant') {

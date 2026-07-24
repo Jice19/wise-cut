@@ -213,6 +213,23 @@ export const AgentConversationBlockSchema = z.discriminatedUnion('type', [
             })
         ),
         type: z.literal('progress')
+    }),
+    z.object({
+        assets: z.array(
+            z.object({
+                assetId: idSchema,
+                fileName: z.string().min(1),
+                frames: z.array(
+                    z.object({
+                        dataUrl: z.string().min(1),
+                        index: z.number().int().nonnegative(),
+                        timestampMs: timeMsSchema
+                    })
+                ),
+                selectedFrameIndex: z.number().int().nonnegative().optional()
+            })
+        ),
+        type: z.literal('keyframes')
     })
 ]);
 

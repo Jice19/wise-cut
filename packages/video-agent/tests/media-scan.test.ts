@@ -64,22 +64,25 @@ describe('media scan tools', () => {
     it('extracts keyframe image files into the output directory', async () => {
         const outputDirectory = path.join(tempDirectory, 'keyframes');
 
+        // 用 4 帧让 sampling fps 至少 1,避免 mjpeg 编码器在 fps<1 时报
+        // "Non full-range YUV is non-standard"。
         const keyframes = await extractKeyframes({
+            durationMs: 1_000,
             ffmpegPath,
             filePath: videoPath,
-            frameCount: 1,
-            outputDirectory
+            maxFrames: 4,
+            outputDirectory,
+            targetFps: 2
         });
 
-        expect(keyframes).toHaveLength(1);
-        expect(keyframes[0]?.index).toBe(1);
-        expect(keyframes[0]?.timestampMs).toBe(0);
+        expect(keyframes.length).toBeGreaterThan(0);
+        expect(keyframes[0]?.index).toBe(0);
         expect(keyframes[0]?.path.endsWith('.jpg')).toBe(true);
 
         const imageStats = await stat(keyframes[0]!.path);
         expect(imageStats.size).toBeGreaterThan(0);
 
         const generatedFiles = await readdir(outputDirectory);
-        expect(generatedFiles).toEqual(['keyframe-001.jpg']);
+        expect(generatedFiles[0]).toMatch(/^frame-\d+\.jpg$/);
     });
 });

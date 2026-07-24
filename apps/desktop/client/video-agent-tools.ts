@@ -1,11 +1,14 @@
 
-import { mkdir, readdir } from 'node:fs/promises';
+import { mkdir, readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 
 import type {
+    AgentRunEvent,
+    AgentRunEventEmitter,
     AssetAnalysis,
     AssetMatchResult,
     CreativeBrief,
+    MediaMetadata,
     ModelProvider,
     PlannedScene,
     TtsProvider,
@@ -13,6 +16,7 @@ import type {
     VideoCreationInput,
     VoiceSynthesisResult
 } from '@wise-cut/video-agent';
+import { extractKeyframes, probeMedia } from '@wise-cut/video-agent';
 import {
     validateVideoProject,
     type VideoProject
@@ -326,6 +330,9 @@ const createTimedScenes = ({
 };
 
 export const createDesktopVideoAgentTools = ({
+    emit,
+    ffmpegPath,
+    ffprobePath,
     getSelectedVoice,
     getSelectedVoiceType,
     getVoiceSettings,
@@ -335,6 +342,9 @@ export const createDesktopVideoAgentTools = ({
     ttsProvider,
     voiceOutputDirectory
 }: {
+    emit?: AgentRunEventEmitter;
+    ffmpegPath?: string;
+    ffprobePath?: string;
     getSelectedVoice?: (runId: string) => string | undefined;
     getSelectedVoiceType?: (runId: string) => string | undefined;
     getVoiceSettings?: (
@@ -380,8 +390,13 @@ export const createDesktopVideoAgentTools = ({
 
                     return {
                         durationMs: asset?.durationMs ?? 6000,
-                        fps: 30,
-                        height: 1080,
+                        // Prefer the probed resolution/fps from scanAssets.
+                        // Fall back to the default canvas (1920x1080 @ 30fps)
+                        // so older project files without these fields still
+                        // load. The canvas itself is built further down with
+                        // the same defaults, so they stay consistent.
+                        fps: asset?.fps ?? 30,
+                        height: asset?.height ?? 1080,
                         id: assetId,
                         path:
                             assetPaths.get(assetId) ??
@@ -392,7 +407,7 @@ export const createDesktopVideoAgentTools = ({
                         thumbnailIds: [
                             `thumbnail_asset_${padIndex(index + 1)}`
                         ],
-                        width: 1920
+                        width: asset?.width ?? 1920
                     };
                 }
             );
@@ -702,21 +717,183 @@ export const createDesktopVideoAgentTools = ({
             }
 
             const safeRunId = createSafeId(input.runId);
+            const slicedEntries = videoEntries.slice(0, 24);
+            const keyframeRoot = path.join(
+                voiceOutputDirectory ??
+                    path.join(input.sourceAssetDirectory, '.miaoma-keyframes'),
+                safeRunId,
+                'keyframes'
+            );
 
-            return videoEntries.slice(0, 24).map((entry, index) => {
-                const assetId = `video_asset_${safeRunId}_${padIndex(
-                    index + 1
-                )}`;
+            // Probe each file in parallel for real duration / fps /
+            // resolution. Without this, downstream code uses a placeholder
+            // duration that causes (a) the AI matcher to mis-rank assets,
+            // and (b) `assembleTimeline` to clamp `sourceEndMs` to a fake
+            // value, which then triggers `tpad=stop_mode=clone` to fill
+            // the rest of the scene with a frozen last frame.
+            //
+            // Each entry is tagged with its `index` so we can derive a
+            // stable `assetId` and so progress reporting can mention
+            // "completed N of M" without race conditions.
+            const totalScanned = slicedEntries.length;
+            let totalCompleted = 0;
 
+            const probed = await Promise.all(
+                slicedEntries.map(async (entry, index) => {
+                    const fullPath = path.join(
+                        input.sourceAssetDirectory,
+                        entry.name
+                    );
+                    const assetId = `video_asset_${safeRunId}_${padIndex(
+                        index + 1
+                    )}`;
+
+                    if (!ffprobePath) {
+                        return {
+                            assetId,
+                            entry,
+                            error: new Error('未提供 ffprobe 路径'),
+                            index,
+                            keyframes: [] as {
+                                dataUrl: string;
+                                index: number;
+                                timestampMs: number;
+                            }[],
+                            metadata: undefined as MediaMetadata | undefined
+                        };
+                    }
+
+                    let metadata: MediaMetadata;
+                    try {
+                        metadata = await probeMedia({
+                            ffprobePath,
+                            filePath: fullPath
+                        });
+                    } catch (error) {
+                        return {
+                            assetId,
+                            entry,
+                            error:
+                                error instanceof Error
+                                    ? error
+                                    : new Error(String(error)),
+                            index,
+                            keyframes: [],
+                            metadata: undefined
+                        };
+                    }
+
+                    // 抽帧:依赖 ffmpeg。没 ffmpeg 路径就跳过,只返回 metadata。
+                    let keyframes: {
+                        dataUrl: string;
+                        index: number;
+                        timestampMs: number;
+                    }[] = [];
+                    if (ffmpegPath) {
+                        try {
+                            const keyframeDir = path.join(
+                                keyframeRoot,
+                                assetId
+                            );
+                            const extracted = await extractKeyframes({
+                                durationMs: metadata.durationMs,
+                                ffmpegPath,
+                                filePath: fullPath,
+                                outputDirectory: keyframeDir
+                            });
+                            keyframes = await Promise.all(
+                                extracted.map(async (frame) => {
+                                    const { readFile } = await import(
+                                        'node:fs/promises'
+                                    );
+                                    const buffer = await readFile(frame.path);
+                                    const dataUrl = `data:image/jpeg;base64,${buffer.toString(
+                                        'base64'
+                                    )}`;
+
+                                    return {
+                                        dataUrl,
+                                        index: frame.index,
+                                        timestampMs: frame.timestampMs
+                                    };
+                                })
+                            );
+                        } catch (error) {
+                            // eslint-disable-next-line no-console
+                            console.warn(
+                                `[scanAssets] 抽帧失败 ${entry.name}：${
+                                    error instanceof Error
+                                        ? error.message
+                                        : String(error)
+                                }`
+                            );
+                        }
+                    }
+
+                    totalCompleted += 1;
+                    emit?.({
+                        assetId,
+                        createdAt: now(),
+                        fileName: entry.name,
+                        keyframes,
+                        runId: input.runId,
+                        sequence: 0,
+                        totalCompleted,
+                        totalScanned,
+                        type: 'asset_scan_progress'
+                    } as AgentRunEvent);
+
+                    return {
+                        assetId,
+                        entry,
+                        error: undefined,
+                        index,
+                        keyframes,
+                        metadata
+                    };
+                })
+            );
+
+            // 抽帧结果已经 inline 推到 renderer 了,磁盘临时文件可清理(用户要求不保留)。
+            void rm(keyframeRoot, { recursive: true, force: true }).catch(
+                () => {
+                    // best-effort, ignore cleanup errors
+                }
+            );
+
+            return probed.map(({ assetId, entry, error, index, metadata }) => {
                 assetPaths.set(
                     assetId,
                     path.join(input.sourceAssetDirectory, entry.name)
                 );
 
+                if (!metadata) {
+                    // Fall back to a placeholder so the rest of the
+                    // pipeline can still run, but warn so we notice when
+                    // probing fails in production.
+                    const fallbackMs = 5000 + (index % 5) * 1500;
+
+                    // eslint-disable-next-line no-console
+                    console.warn(
+                        `[scanAssets] 无法 ffprobe ${entry.name}：${
+                            error?.message ?? 'unknown error'
+                        }，使用占位时长 ${fallbackMs}ms`
+                    );
+
+                    return {
+                        assetId,
+                        description: `本地视频素材 ${entry.name}`,
+                        durationMs: fallbackMs
+                    };
+                }
+
                 return {
                     assetId,
                     description: `本地视频素材 ${entry.name}`,
-                    durationMs: 5000 + (index % 5) * 1500
+                    durationMs: metadata.durationMs,
+                    fps: metadata.fps,
+                    height: metadata.height,
+                    width: metadata.width
                 };
             });
         },

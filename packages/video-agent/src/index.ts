@@ -6,6 +6,7 @@ export type {
     AgentRunEvent,
     AgentRunEventBase
 } from './events/agent-run-event';
+export type { AgentRunEventEmitter } from './events/event-emitter';
 export {
     createSequencedEventEmitter,
     redactSecrets,

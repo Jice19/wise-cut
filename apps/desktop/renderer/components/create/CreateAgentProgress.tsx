@@ -67,7 +67,14 @@ const getEventLabel = (event: DesktopAgentRunEvent) => {
         return `${stageLabel.replace(/^正在/, '')}失败`;
     }
 
-    return nodeStageLabels[event.nodeName] ?? event.nodeName;
+    if (
+        event.type === 'node.started' ||
+        event.type === 'node.completed'
+    ) {
+        return nodeStageLabels[event.nodeName] ?? event.nodeName;
+    }
+
+    return event.type;
 };
 
 const getEventDetail = (event: DesktopAgentRunEvent) => {
