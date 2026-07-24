@@ -1,0 +1,13 @@
+# 对 staged 文件跑 prettier 自动 format,然后把改过的文件 add 回 index。
+# 等效 lint-staged 但不引入新依赖,直接用 workspace 已有 prettier 3.6.2
+# + .prettierrc.json。--ignore-unknown 让非文本文件(.mp4 / .png / .json 等)
+# 走默认通道,不会报"不认识扩展名"。
+#
+# 用 ./node_modules/.bin/prettier 而不是 npx prettier,避免在 npx 找不到
+# 本地包时静默装新版本(可能跟 .prettierrc 不兼容)。
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACMR)
+
+if [ -n "$STAGED_FILES" ]; then
+    ./node_modules/.bin/prettier --write --ignore-unknown $STAGED_FILES
+    git add -u
+fi

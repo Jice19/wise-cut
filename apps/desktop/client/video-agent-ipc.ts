@@ -1,4 +1,3 @@
-
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -698,10 +697,7 @@ export const createLangGraphVideoAgentController = ({
             }[]
         >
     >();
-    const understandingByRunId = new Map<
-        string,
-        Map<string, DescribedImage>
-    >();
+    const understandingByRunId = new Map<string, Map<string, DescribedImage>>();
     // 当 tools 内部 emit 一个 sequence=0 的事件(说明没有 sequence 来源),
     // 我们用 lastSequences 统一分配递增 sequence,跟 graph node 事件保持单调。
     const lastSequences = new Map<string, number>();
@@ -843,10 +839,7 @@ export const createLangGraphVideoAgentController = ({
             const binaries = resolveVideoExportBinaries({
                 appPath: app.getAppPath(),
                 isPackaged: app.isPackaged,
-                platform: process.platform as
-                    | 'darwin'
-                    | 'linux'
-                    | 'win32',
+                platform: process.platform as 'darwin' | 'linux' | 'win32',
                 resourcesPath: process.resourcesPath
             });
             if (existsSync(binaries.ffprobePath)) {
@@ -1227,8 +1220,9 @@ export const createLangGraphVideoAgentController = ({
 
             // 优先用用户实时推过来的代表帧;没推过就 fallback 到 scan 全量
             // (按 frameCount 截前 N,默认 3)。无论哪种都得 > 0。
-            const selected =
-                selectedFramesByRunId.get(input.runId)?.get(input.assetId);
+            const selected = selectedFramesByRunId
+                .get(input.runId)
+                ?.get(input.assetId);
             const allKeyframes =
                 keyframesByRunId.get(input.runId)?.get(input.assetId) ?? [];
             const frames =
@@ -1320,9 +1314,7 @@ export const createLangGraphVideoAgentController = ({
                 // eslint-disable-next-line no-console
                 console.warn(
                     `[analyzeAsset] 多模态理解失败 ${fileName}: ${
-                        error instanceof Error
-                            ? error.message
-                            : String(error)
+                        error instanceof Error ? error.message : String(error)
                     }`
                 );
 

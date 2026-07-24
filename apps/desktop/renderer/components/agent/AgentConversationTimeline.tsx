@@ -1,4 +1,3 @@
-
 import { useEffect, useState } from 'react';
 
 import type {
@@ -532,7 +531,7 @@ const ApprovalMessage = ({
                                 onChange={(event) =>
                                     setFeedback(event.target.value)
                                 }
-                                placeholder="例如:把第 3 个分镜的口播缩短;视觉意图落到素材 video_asset_001"
+                                placeholder="留空则按原 brief 重新生成;有反馈则据此调整(例如:把第 3 个分镜的口播缩短)"
                                 rows={2}
                                 className="w-full resize-none rounded-[8px] border border-[#2A2F38] bg-[#11141A] px-3 py-2 text-[13px] leading-[20px] text-[#DCE2EA] outline-none placeholder:text-[#6F7784] focus:border-[#4B5563]"
                             />

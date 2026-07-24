@@ -1,4 +1,3 @@
-
 export const defaultVideoAgentCanvas = {
     fps: 30,
     height: 1080,

@@ -252,7 +252,8 @@ describe('video creation graph', () => {
         const rejectResult = await graph.resume({
             approval: {
                 approved: false,
-                feedback: '把第 3 个分镜的口播缩短,视觉意图落到素材 video_asset_001'
+                feedback:
+                    '把第 3 个分镜的口播缩短,视觉意图落到素材 video_asset_001'
             },
             runId: runInput.runId
         });
@@ -262,7 +263,10 @@ describe('video creation graph', () => {
         expect(rejectResult.approval?.type).toBe('scene-plan');
 
         // planScenes 应该被调用了 2 次,第二次带 feedback
-        expect(planScenesFeedbacks).toEqual([null, '把第 3 个分镜的口播缩短,视觉意图落到素材 video_asset_001']);
+        expect(planScenesFeedbacks).toEqual([
+            null,
+            '把第 3 个分镜的口播缩短,视觉意图落到素材 video_asset_001'
+        ]);
 
         // 调用顺序:scanAssets → analyzeAssets → creativeBrief → planScenes
         // → ... → planScenes(重跑) → scene_approval(再 interrupt)

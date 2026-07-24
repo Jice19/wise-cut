@@ -1,4 +1,3 @@
-
 import { mkdir, readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -640,7 +639,8 @@ export const createDesktopVideoAgentTools = ({
                 return {
                     actions: understanding?.actions,
                     assetId: asset.assetId,
-                    description: understanding?.description ?? asset.description,
+                    description:
+                        understanding?.description ?? asset.description,
                     mood: understanding?.mood,
                     objects: understanding?.objects,
                     suggestedSceneType: understanding?.suggestedSceneType
@@ -649,9 +649,7 @@ export const createDesktopVideoAgentTools = ({
 
             return modelProvider.generateCreativeBrief({
                 prompt: input.prompt,
-                sourceAssetSummaries: assets.map(
-                    (asset) => asset.description
-                ),
+                sourceAssetSummaries: assets.map((asset) => asset.description),
                 sourceAssets
             });
         },
@@ -684,7 +682,8 @@ export const createDesktopVideoAgentTools = ({
 
                 return {
                     assetId: asset.assetId,
-                    description: understanding?.description ?? asset.description,
+                    description:
+                        understanding?.description ?? asset.description,
                     mood: understanding?.mood,
                     suggestedSceneType: understanding?.suggestedSceneType
                 };
@@ -710,7 +709,8 @@ export const createDesktopVideoAgentTools = ({
                     return {
                         actions: understanding?.actions,
                         assetId: asset.assetId,
-                        description: understanding?.description ?? asset.description,
+                        description:
+                            understanding?.description ?? asset.description,
                         mood: understanding?.mood,
                         objects: understanding?.objects,
                         suggestedSceneType: understanding?.suggestedSceneType

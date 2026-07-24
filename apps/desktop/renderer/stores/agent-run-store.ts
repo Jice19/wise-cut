@@ -1,4 +1,3 @@
-
 import { useSyncExternalStore } from 'react';
 
 import type { AgentConversationMessage } from '@wise-cut/video-project';
@@ -237,9 +236,7 @@ export const reviseAgentRun = async (runId: string, feedback: string) => {
 
     addAgentRunUserReply({
         approved: false,
-        content: trimmed
-            ? `调整分镜:${trimmed}`
-            : '调整分镜方向',
+        content: trimmed ? `调整分镜:${trimmed}` : '调整分镜方向',
         runId
     });
 
