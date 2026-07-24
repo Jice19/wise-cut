@@ -8,6 +8,7 @@ import type {
     AssetAnalysis,
     AssetMatchResult,
     CreativeBrief,
+    DescribedImage,
     MediaMetadata,
     ModelProvider,
     PlannedScene,
@@ -333,6 +334,7 @@ export const createDesktopVideoAgentTools = ({
     emit,
     ffmpegPath,
     ffprobePath,
+    getAssetUnderstanding,
     getSelectedVoice,
     getSelectedVoiceType,
     getVoiceSettings,
@@ -345,6 +347,16 @@ export const createDesktopVideoAgentTools = ({
     emit?: AgentRunEventEmitter;
     ffmpegPath?: string;
     ffprobePath?: string;
+    /**
+     * 可选:按 (runId, assetId) 拿 Step 2 多模态理解结果。`planScenes` 工具
+     * 会用它把多模态画面描述合并进 ScenePlanInput.sourceAssets,让 LLM
+     * 拆分镜时能落到具体素材上。未提供时回退到 `AssetAnalysis.description`
+     * (scan 阶段的占位描述)。
+     */
+    getAssetUnderstanding?: (
+        runId: string,
+        assetId: string
+    ) => DescribedImage | undefined;
     getSelectedVoice?: (runId: string) => string | undefined;
     getSelectedVoiceType?: (runId: string) => string | undefined;
     getVoiceSettings?: (
@@ -642,8 +654,28 @@ export const createDesktopVideoAgentTools = ({
                   }),
         planScenes: async ({ assets, brief, input }) => {
             if (modelProvider) {
+                // 优先用 Step 2 多模态理解结果(IPC understandingByRunId 缓存);
+                // 没理解过的素材回退到 scan 阶段的占位 description,确保 LLM
+                // 至少知道每个素材对应哪个文件。
+                const sourceAssets = assets.map((asset) => {
+                    const understanding = getAssetUnderstanding?.(
+                        input.runId,
+                        asset.assetId
+                    );
+
+                    return {
+                        actions: understanding?.actions,
+                        assetId: asset.assetId,
+                        description: understanding?.description ?? asset.description,
+                        mood: understanding?.mood,
+                        objects: understanding?.objects,
+                        suggestedSceneType: understanding?.suggestedSceneType
+                    };
+                });
+
                 const plannedScenes = await modelProvider.planScenes({
-                    brief
+                    brief,
+                    sourceAssets
                 });
 
                 return plannedScenes.map(normalizePlannedSceneSpeech);

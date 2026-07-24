@@ -11,6 +11,7 @@ import {
     type AgentRunEvent,
     ArkChatModelProvider,
     createVideoCreationGraph,
+    type DescribedImage,
     IndexTts2Provider,
     loadAgentEnv,
     type ModelProvider,
@@ -672,6 +673,8 @@ export const createLangGraphVideoAgentController = ({
     // - keyframesByRunId: scan 阶段推过来的所有 keyframes(全量,用于兜底)
     // - fileNameByRunId: 资产 → 原始 fileName(修之前 .map(()=>'').join('') 永远是空字符串的 bug)
     // - selectedFramesByRunId: renderer 实时推过来的代表帧(用户精选,优先用)
+    // - understandingByRunId: Step 2 多模态理解结果(描述/氛围/物体/动作/建议分镜),
+    //   供 Step 3 plan_scenes 节点在拆分镜时把 visualIntent 落到具体素材画面内容上。
     const keyframesByRunId = new Map<
         string,
         Map<
@@ -694,6 +697,10 @@ export const createLangGraphVideoAgentController = ({
                 timestampMs: number;
             }[]
         >
+    >();
+    const understandingByRunId = new Map<
+        string,
+        Map<string, DescribedImage>
     >();
     // 当 tools 内部 emit 一个 sequence=0 的事件(说明没有 sequence 来源),
     // 我们用 lastSequences 统一分配递增 sequence,跟 graph node 事件保持单调。
@@ -753,6 +760,21 @@ export const createLangGraphVideoAgentController = ({
     };
     const getFileName = (runId: string, assetId: string) =>
         fileNameByRunId.get(runId)?.get(assetId);
+    const rememberUnderstanding = (
+        runId: string,
+        assetId: string,
+        understanding: DescribedImage
+    ) => {
+        let perAsset = understandingByRunId.get(runId);
+
+        if (!perAsset) {
+            perAsset = new Map();
+            understandingByRunId.set(runId, perAsset);
+        }
+        perAsset.set(assetId, understanding);
+    };
+    const getAssetUnderstanding = (runId: string, assetId: string) =>
+        understandingByRunId.get(runId)?.get(assetId);
 
     const emitGraphEvent = (event: AgentRunEvent) => {
         const state = runs.get(event.runId);
@@ -846,6 +868,9 @@ export const createLangGraphVideoAgentController = ({
                 emit: emitGraphEvent,
                 ffmpegPath,
                 ffprobePath,
+                // 把多模态理解结果传给 planScenes 工具,让 LLM 拆分镜时
+                // 能看到每个素材的实际画面内容 / 氛围 / 建议分镜类型。
+                getAssetUnderstanding,
                 getSelectedVoice,
                 getSelectedVoiceType,
                 getVoiceSettings,
@@ -1256,6 +1281,11 @@ export const createLangGraphVideoAgentController = ({
                     frames,
                     userPrompt: runState.input.prompt
                 });
+
+                // 缓存多模态结果,供 plan_scenes 节点在拆分镜时读。
+                // 跟 emit 顺序无关,先缓存再 emit,确保 chat 流一旦推到,
+                // 后续 plan_scenes 一定能拿到(避免 race)。
+                rememberUnderstanding(input.runId, input.assetId, described);
 
                 const completedAt = now();
                 const completedSequence =
