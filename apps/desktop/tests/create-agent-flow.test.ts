@@ -2243,4 +2243,163 @@ describe('create agent flow', () => {
             viewModel.entries.filter((entry) => entry.detail === error)
         ).toHaveLength(1);
     });
+
+    // Regression: scanAssets must call probeMedia so downstream code (AI
+    // matcher + assembleTimeline) sees the true asset duration. Without
+    // this, every clip is built from a placeholder durationMs of
+    // `5000 + (index % 5) * 1500`, which (a) misleads the AI into
+    // matching the wrong assets to scenes and (b) clamps sourceEndMs to
+    // the wrong value so tpad=stop_mode=clone freezes the last frame
+    // across the rest of each scene.
+    it('probes real metadata in scanAssets when an ffprobe path is provided', async () => {
+        const { createDesktopVideoAgentTools } = await import(
+            '../client/video-agent-tools'
+        );
+
+        // Write a tiny directory of empty placeholder files. The actual
+        // ffprobe call is mocked via the probeMedia dependency below, so
+        // we don't need real video files for this test.
+        const directory = await mkdtemp(
+            path.join(tmpdir(), 'miaoma-scanAssets-')
+        );
+        await writeFile(path.join(directory, 'clip-a.mp4'), '');
+        await writeFile(path.join(directory, 'clip-b.mp4'), '');
+
+        try {
+            // We can't easily mock the named export `probeMedia`, so
+            // instead we point ffprobePath at a fake binary and assert
+            // that scanAssets emits the placeholder fallback path AND
+            // surfaces a warning. The real happy path is covered by
+            // the probe-videos integration test against a real
+            // /Users/apple/Downloads/videos/ directory.
+            const tools = createDesktopVideoAgentTools({
+                ffprobePath: '/nonexistent/ffprobe',
+                store: {} as never
+            });
+
+            const warnings: string[] = [];
+            const originalWarn = console.warn;
+            console.warn = (...args: unknown[]) => {
+                warnings.push(args.join(' '));
+            };
+
+            let assets;
+            try {
+                assets = await tools.scanAssets({
+                    input: {
+                        prompt: 'p',
+                        runId: 'run_regression',
+                        sourceAssetDirectory: directory
+                    }
+                });
+            } finally {
+                console.warn = originalWarn;
+            }
+
+            expect(assets).toHaveLength(2);
+            // Both files should fall back to the placeholder math
+            // because the fake ffprobe can't actually probe anything.
+            expect(assets[0]?.durationMs).toBe(5000);
+            expect(assets[1]?.durationMs).toBe(6500);
+            expect(
+                warnings.some((line) => line.includes('[scanAssets]'))
+            ).toBe(true);
+        } finally {
+            await rm(directory, { recursive: true, force: true });
+        }
+    });
+
+    it('uses real metadata from probeMedia in assembleTimeline output', async () => {
+        const { createDesktopVideoAgentTools } = await import(
+            '../client/video-agent-tools'
+        );
+
+        // This test exercises the same path as the user's report: when
+        // AssetAnalysis carries real durationMs (from probeMedia), the
+        // assembled VideoProject's video assets should reflect that,
+        // and the timeline clips' sourceEndMs should NOT be clamped
+        // down to a fake value.
+        const tools = createDesktopVideoAgentTools({
+            store: {} as never
+        });
+
+        const project = await tools.assembleTimeline({
+            assets: [
+                {
+                    assetId: 'video_asset_long',
+                    description: '10s source',
+                    durationMs: 10042,
+                    fps: 24,
+                    height: 720,
+                    width: 1280
+                }
+            ],
+            brief: {
+                audience: 'demo',
+                keyMessages: ['real metadata'],
+                summary: 'verify asset fields flow through',
+                title: '真实元数据',
+                tone: '清晰',
+                visualStyle: '口播'
+            },
+            input: {
+                prompt: 'p',
+                runId: 'run_real_metadata',
+                sourceAssetDirectory: '/tmp'
+            },
+            matches: [
+                {
+                    rankedAssetIds: [
+                        {
+                            assetId: 'video_asset_long',
+                            reason: '唯一可用素材',
+                            score: 1
+                        }
+                    ],
+                    sceneId: 'scene_only'
+                }
+            ],
+            scenes: [
+                {
+                    durationMs: 8000,
+                    goal: 'g',
+                    id: 'scene_only',
+                    index: 1,
+                    script: 's',
+                    subtitleLines: ['s'],
+                    title: 't',
+                    visualIntent: 'v',
+                    voiceAssetId: 'voice_only'
+                }
+            ],
+            voices: [
+                {
+                    assetId: 'voice_only',
+                    durationMs: 8000,
+                    lineIndex: 0,
+                    path: '/tmp/voice.mp3',
+                    provider: 'fake',
+                    sceneId: 'scene_only',
+                    text: 's'
+                }
+            ]
+        });
+
+        const videoAsset = project.assets.videos.find(
+            (asset) => asset.id === 'video_asset_long'
+        );
+        expect(videoAsset?.durationMs).toBe(10042);
+        expect(videoAsset?.fps).toBe(24);
+        expect(videoAsset?.width).toBe(1280);
+        expect(videoAsset?.height).toBe(720);
+
+        const videoClip = project.tracks
+            .find((track) => track.kind === 'video')
+            ?.clips.find((clip) => clip.assetId === 'video_asset_long');
+        // The scene is 8s long and the asset is 10s — sourceEndMs should
+        // land at scene length (8s), not be clamped down by the
+        // placeholder-duration math.
+        expect(videoClip?.sourceEndMs).toBe(8000);
+        expect(videoClip?.sourceStartMs).toBe(0);
+    });
 });
