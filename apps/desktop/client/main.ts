@@ -1,8 +1,10 @@
-
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import started from 'electron-squirrel-startup';
 import path from 'node:path';
 
+import { createAgentDatabase } from '@wise-cut/video-agent';
+
+import { createAgentDatabaseHelpers } from './agent-database-helpers';
 import { registerCustomVoiceIpc } from './custom-voice-ipc';
 import { createCustomVoiceLibrary } from './custom-voice-library';
 import {
@@ -54,6 +56,30 @@ app.whenReady().then(() => {
         rootDirectory: path.join(app.getPath('userData'), 'custom-voices')
     });
 
+    // 启动本地 sqlite,记录 agent 运行历史。
+    // 路径:macOS = ~/Library/Application Support/wise-cut/agent.sqlite
+    //       Windows = %APPDATA%\wise-cut\agent.sqlite
+    // 用 try/catch 包住:sqlite 写失败不应该阻塞 App 启动(本地
+    // 持久化是 best-effort,IPC 路径仍然把事件推到 renderer)。
+    let agentDatabaseHelpers:
+        | ReturnType<typeof createAgentDatabaseHelpers>
+        | undefined;
+    try {
+        const agentDatabase = createAgentDatabase({
+            filename: path.join(app.getPath('userData'), 'agent.sqlite')
+        });
+        agentDatabaseHelpers = createAgentDatabaseHelpers({
+            database: agentDatabase.database
+        });
+    } catch (error) {
+        // eslint-disable-next-line no-console
+        console.warn(
+            `[agentDatabase] 启动失败,继续运行但 agent_runs 不持久化:${
+                error instanceof Error ? error.message : String(error)
+            }`
+        );
+    }
+
     registerMediaProtocol({
         customVoiceReferenceResolver: customVoiceLibrary.resolveReferencePath,
         store: videoProjectStore
@@ -81,6 +107,7 @@ app.whenReady().then(() => {
     });
     registerVideoAgentIpc({
         controller: createLangGraphVideoAgentController({
+            agentDatabase: agentDatabaseHelpers,
             customVoiceReferenceResolver:
                 customVoiceLibrary.resolveReferencePath,
             store: videoProjectStore,

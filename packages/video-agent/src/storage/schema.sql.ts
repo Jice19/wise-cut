@@ -9,7 +9,7 @@ export const agentDatabaseSchemaStatements = [
     )`,
     `create table if not exists agent_runs (
         id text primary key,
-        project_id text not null,
+        project_id text,
         status text not null,
         started_at text not null,
         completed_at text,

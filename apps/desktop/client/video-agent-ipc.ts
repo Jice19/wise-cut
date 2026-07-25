@@ -36,6 +36,11 @@ import type {
 import { videoAgentIpcChannels } from '../shared/video-agent-channels';
 import { normalizeVideoAgentVoiceSettings } from '../shared/video-agent-voices';
 
+import {
+    createAgentDatabaseHelpers,
+    type AgentDatabaseHelpers,
+    toAgentRunStatus
+} from './agent-database-helpers';
 import { regenerateVideoProjectScene } from './video-agent-scene-regeneration';
 import { createDesktopVideoAgentTools } from './video-agent-tools';
 import {
@@ -651,6 +656,7 @@ export const createDemoVideoAgentController = ({
 };
 
 export const createLangGraphVideoAgentController = ({
+    agentDatabase,
     createRunId = () => `run_${randomUUID()}`,
     createRunner,
     customVoiceReferenceResolver,
@@ -661,6 +667,13 @@ export const createLangGraphVideoAgentController = ({
     ttsProvider,
     voiceOutputDirectory = path.join(tmpdir(), 'miaoma-magicut', 'voices')
 }: {
+    /**
+     * 可选:本地 sqlite 句柄(由 main.ts 启动时创建,userData/agent.sqlite)。
+     * 提供后会写 `agent_runs` 表记录每次智能体运行的状态(运行中 / 等待
+     * 审批 / 完成 / 失败 / 取消),用户可以从 sqlite 工具查运行历史。
+     * 不提供就跟以前一样,只把状态推到 renderer 端。
+     */
+    agentDatabase?: AgentDatabaseHelpers;
     createRunId?: () => string;
     createRunner?: LangGraphRunnerFactory;
     customVoiceReferenceResolver?: (
@@ -792,6 +805,37 @@ export const createLangGraphVideoAgentController = ({
             rememberFileName(event.runId, event.assetId, event.fileName);
         }
 
+        // 终态事件写本地 sqlite 的 `agent_runs` 表,让用户能查运行历史
+        // (在 `app.getPath('userData')/agent.sqlite`)。start 不写(此时
+        // project_id 还没生成);等 run.completed 时 update 进去。
+        // 注意:AgentRunEvent type 当前不含 run.cancelled(那个走
+        // emitForRun 直接给 renderer,跟 graph node 事件分两条路径),
+        // run.cancelled 的 sqlite 写在 emitForRun 调用前 hook。
+        if (event.type === 'run.completed' || event.type === 'run.failed') {
+            const status =
+                event.type === 'run.completed' ? 'completed' : 'failed';
+
+            try {
+                agentDatabase?.recordRunFinished({
+                    completedAt: now(),
+                    errorMessage:
+                        event.type === 'run.failed' ? event.error : null,
+                    id: event.runId,
+                    projectId:
+                        event.type === 'run.completed' ? event.projectId : null,
+                    status
+                });
+            } catch (error) {
+                // sqlite 写失败不应该阻塞 emit,本地持久化是 best-effort
+                // eslint-disable-next-line no-console
+                console.warn(
+                    `[agentDatabase] recordRunFinished failed for ${event.runId}: ${
+                        error instanceof Error ? error.message : String(error)
+                    }`
+                );
+            }
+        }
+
         // graph node 已经填了 sequence 的事件原样用;否则用 lastSequences
         // 分配一个递增 sequence(主要给 tools 内部 emit 用)。
         let sequence = event.sequence;
@@ -898,6 +942,28 @@ export const createLangGraphVideoAgentController = ({
             runId: state.runId,
             sequence: state.sequence
         } as DesktopAgentRunEvent);
+
+        // run.cancelled 走这条 emitForRun 路径(graph node 事件不 emit
+        // run.cancelled,所以 emitGraphEvent 那边的 hook 拿不到)。
+        // 在这里补一刀,把终态写本地 sqlite,跟 graph 终态对齐。
+        if (event.type === 'run.cancelled') {
+            try {
+                agentDatabase?.recordRunFinished({
+                    completedAt: now(),
+                    errorMessage: null,
+                    id: state.runId,
+                    projectId: null,
+                    status: 'cancelled'
+                });
+            } catch (error) {
+                // eslint-disable-next-line no-console
+                console.warn(
+                    `[agentDatabase] recordRunFinished (cancelled) failed for ${state.runId}: ${
+                        error instanceof Error ? error.message : String(error)
+                    }`
+                );
+            }
+        }
     };
 
     const emitForVoiceRegenerationRun = (
@@ -1142,6 +1208,23 @@ export const createLangGraphVideoAgentController = ({
                 sequence: 0
             };
             runs.set(runId, state);
+
+            // 写本地 sqlite,记录 run 进入 running。project_id 此时
+            // 还没生成(graph 跑到 save_project 才知道),存 null,
+            // 终态时由 emitGraphEvent 的 hook 补上。
+            try {
+                agentDatabase?.recordRunStarted({
+                    id: runId,
+                    startedAt: now()
+                });
+            } catch (error) {
+                // eslint-disable-next-line no-console
+                console.warn(
+                    `[agentDatabase] recordRunStarted failed for ${runId}: ${
+                        error instanceof Error ? error.message : String(error)
+                    }`
+                );
+            }
 
             activeEmitters.set(runId, emit);
 
