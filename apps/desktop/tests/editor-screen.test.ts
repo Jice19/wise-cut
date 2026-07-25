@@ -1298,12 +1298,10 @@ describe('MiaojianEditorScreen', () => {
     it('separates preview voice playback instances when speed changes', () => {
         const source = 'app-media://project/project_preview/voice/voice_01';
         const normalSpeedKey = createPreviewVoicePlaybackKey({
-            cueId: 'voice_01',
             playbackRate: 1,
             source
         });
         const fasterSpeedKey = createPreviewVoicePlaybackKey({
-            cueId: 'voice_01',
             playbackRate: 1.25,
             source
         });

@@ -129,23 +129,21 @@ export const createPreviewTimeUpdate = ({
 
 const syncMediaCurrentTime = ({
     element,
-    force = false,
     timeMs
 }: {
     element: HTMLMediaElement | null;
-    force?: boolean;
+    /**
+     * 必须 force 设 currentTime(用户拖进度条 / 切分镜时需要)。
+     * 平时(每帧 React 推 prop)不调这个,避免频繁 seek 卡顿。
+     */
     timeMs: number;
 }) => {
     if (!element) return;
 
-    const nextCurrentTime = timeMs / 1000;
-
-    if (force || Math.abs(element.currentTime - nextCurrentTime) > 0.3) {
-        element.currentTime = nextCurrentTime;
-    }
+    element.currentTime = timeMs / 1000;
 };
 
-const syncMediaPlaybackSettings = ({
+export const syncMediaPlaybackSettings = ({
     element,
     playbackRate
 }: {
@@ -157,7 +155,7 @@ const syncMediaPlaybackSettings = ({
     element.playbackRate = clampPreviewPlaybackRate(playbackRate);
 };
 
-const syncAudioPlaybackSettings = ({
+export const syncAudioPlaybackSettings = ({
     element,
     playbackRate,
     volume
@@ -176,17 +174,55 @@ const syncAudioPlaybackSettings = ({
 };
 
 export const createPreviewVoicePlaybackKey = ({
-    cueId,
     playbackRate,
     source
 }: {
-    cueId?: string;
     playbackRate?: number;
     source?: string;
 }) => {
     if (!source) return '';
 
-    return [source, cueId ?? 'segment', playbackRate ?? 1].join('|');
+    // key 不含 cueId。voice cue 切换只改 cueId,不改 source 时,audio
+    // 元素不该 remount,否则正在播的配音会被截断,下一段从头开始
+    // (典型场景:一段长配音切成多个 cue 标注句子边界,用户在中间切
+    // 配音应该连续播,而不是每句都被打断)。
+    return [source, playbackRate ?? 1].join('|');
+};
+
+/**
+ * 把 video 的 `ended` 事件绑成 browser-native loop:源播到尽头时,
+ * 调 `currentTime = 0` + `play()` 重新从头开始,避免 React 每帧
+ * 推 prop 触发频繁 seek 导致画面/音频卡顿(原方案 A 的核心修复点)。
+ *
+ * 音频(口播/配音)一起 reset + play — video 跟 voice 同步 loop,
+ * 避免"视频刚到 0、配音卡在 2s"这种错位。
+ *
+ * 返回 cleanup 函数,调用方在 effect cleanup 里跑。
+ */
+export const createLoopVideoOnEnded = ({
+    video,
+    audio
+}: {
+    video: HTMLVideoElement | null;
+    audio?: HTMLAudioElement | null;
+}) => {
+    if (!video) return undefined;
+
+    const handleEnded = () => {
+        video.currentTime = 0;
+        void video.play().catch((): void => undefined);
+
+        if (audio) {
+            audio.currentTime = 0;
+            void audio.play().catch((): void => undefined);
+        }
+    };
+
+    video.addEventListener('ended', handleEnded);
+
+    return () => {
+        video.removeEventListener('ended', handleEnded);
+    };
 };
 
 const createPreviewSubtitleStyle = (style?: PreviewSubtitleCue['style']) => {
@@ -318,7 +354,6 @@ export const PreviewPanel = ({
     const voicePlaybackRate =
         activeVoiceCue?.playbackRate ?? activeSegment?.playbackRate;
     const voicePlaybackKey = createPreviewVoicePlaybackKey({
-        cueId: activeVoiceCue?.id,
         playbackRate: voicePlaybackRate,
         source: voiceSource
     });
@@ -356,45 +391,6 @@ export const PreviewPanel = ({
     }, [music?.source]);
 
     useEffect(() => {
-        syncMediaCurrentTime({
-            element: videoRef.current,
-            timeMs: localTimeMs
-        });
-        syncMediaPlaybackSettings({
-            element: videoRef.current,
-            playbackRate: videoPlaybackRate
-        });
-        syncMediaCurrentTime({
-            element: audioRef.current,
-            timeMs: voiceLocalTimeMs
-        });
-        syncAudioPlaybackSettings({
-            element: audioRef.current,
-            playbackRate: voicePlaybackRate,
-            volume: voiceVolume
-        });
-        syncMediaCurrentTime({
-            element: musicAudioRef.current,
-            timeMs: musicLocalTimeMs
-        });
-        syncAudioPlaybackSettings({
-            element: musicAudioRef.current,
-            volume: music?.volume
-        });
-    }, [
-        localTimeMs,
-        mediaSource,
-        music?.source,
-        music?.volume,
-        musicLocalTimeMs,
-        videoPlaybackRate,
-        voiceLocalTimeMs,
-        voicePlaybackRate,
-        voicePlaybackKey,
-        voiceVolume
-    ]);
-
-    useEffect(() => {
         const audio = musicAudioRef.current;
 
         if (isPlaying) {
@@ -403,7 +399,7 @@ export const PreviewPanel = ({
         }
 
         audio?.pause();
-    }, [isPlaying, music?.source, music?.volume, musicLocalTimeMs]);
+    }, [isPlaying, music?.source, music?.volume]);
 
     useEffect(() => {
         const video = videoRef.current;
@@ -416,12 +412,10 @@ export const PreviewPanel = ({
         }
 
         video?.pause();
-        syncMediaCurrentTime({
-            element: video,
-            force: true,
-            timeMs: localTimeMs
-        });
-
+        // 不再 force 设 currentTime — React 不再频繁 seek video,
+        // video 自然从 0 播到 5s,5s 时由 video.onEnded listener 触发
+        // loop(currentTime = 0 + play())。这才是真正的 browser-native
+        // loop,避免 mod loop 在边界跨阈值的频繁 seek 卡顿。
         if (isPlaying) {
             void audio?.play().catch((): void => undefined);
             return;
@@ -431,12 +425,40 @@ export const PreviewPanel = ({
     }, [
         isPlaying,
         isVideoSourceExhausted,
-        localTimeMs,
         mediaSource,
         voicePlaybackKey,
         voicePlaybackRate,
         voiceVolume
     ]);
+
+    // video.onEnded → 源播完时设 currentTime=0 + play(),实现 browser
+    // 原生 loop。删掉 L358-L395 的频繁 seek effect 后,video 自然从 0
+    // 播到 duration,触发 ended 事件,我们接住,设 0 再 play → 无缝循环。
+    // 音频也同步 loop(口播/配音短于 video 时,跟 video 一起 loop 听起来更
+    // 协调;但 audio 没 ended 概念,只设 audio.currentTime = 0 + play()。
+    useEffect(
+        () =>
+            createLoopVideoOnEnded({
+                video: videoRef.current,
+                audio: audioRef.current
+            }),
+        [mediaSource, voicePlaybackKey]
+    );
+
+    // 用户拖进度条 / 切分镜:外部 setState 后传 currentTimeMs / 媒体
+    // 源进 PreviewPanel,我们 force 设 video.currentTime 跳到新位置。
+    // 不依赖 video 的 onTimeUpdate 推 prop(那样循环依赖,会抖)。
+    //
+    // 依赖只有 [mediaSource] — 不挂 voicePlaybackKey。原因:voice cue
+    // 切换时(audio 元素 key 变,自己 remount),不应 seek video。video
+    // 跟 voice 是平行轨道,voice 换了 video 该继续在当前位置播,只有
+    // 分镜本身换了(mediaSource 变)才需要 seek。
+    useEffect(() => {
+        syncMediaCurrentTime({
+            element: videoRef.current,
+            timeMs: localTimeMs
+        });
+    }, [mediaSource]);
 
     return (
         <section
@@ -461,10 +483,11 @@ export const PreviewPanel = ({
                             playsInline
                             preload="metadata"
                             onLoadedMetadata={(event) => {
-                                syncMediaCurrentTime({
-                                    element: event.currentTarget,
-                                    timeMs: localTimeMs
-                                });
+                                // 不再 force 设 currentTime,让 video 从 0
+                                // 自然开始播。playbackRate / volume 由下面
+                                // 的独立 effect 设(只切分镜/切速率时跑)。
+                                // 切分镜时由 mediaSource / voicePlaybackKey
+                                // 变化触发的 effect seek 一次到 localTimeMs。
                                 syncMediaPlaybackSettings({
                                     element: event.currentTarget,
                                     playbackRate: videoPlaybackRate
@@ -482,10 +505,8 @@ export const PreviewPanel = ({
                                 src={voiceSource}
                                 preload="metadata"
                                 onLoadedMetadata={(event) => {
-                                    syncMediaCurrentTime({
-                                        element: event.currentTarget,
-                                        timeMs: voiceLocalTimeMs
-                                    });
+                                    // 同样不设 currentTime,让 audio 从 0
+                                    // 自然开始;切分镜时 effect seek 一次。
                                     syncAudioPlaybackSettings({
                                         element: event.currentTarget,
                                         playbackRate: voicePlaybackRate,
@@ -532,10 +553,8 @@ export const PreviewPanel = ({
                         src={music.source}
                         preload="metadata"
                         onLoadedMetadata={(event) => {
-                            syncMediaCurrentTime({
-                                element: event.currentTarget,
-                                timeMs: musicLocalTimeMs
-                            });
+                            // music 不设 currentTime,让 audio 从 0 开始;
+                            // volume 由独立 effect 在 isPlaying 切换时设。
                             syncAudioPlaybackSettings({
                                 element: event.currentTarget,
                                 volume: music.volume

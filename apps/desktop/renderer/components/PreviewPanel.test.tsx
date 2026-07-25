@@ -1,11 +1,15 @@
 /* */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { PreviewSegment } from '../types/editor-screen';
 
 import {
+    createLoopVideoOnEnded,
+    createPreviewVoicePlaybackKey,
     getPreviewSegmentLocalTimeMs,
-    isPreviewSegmentSourceExhausted
+    isPreviewSegmentSourceExhausted,
+    syncAudioPlaybackSettings,
+    syncMediaPlaybackSettings
 } from './PreviewPanel';
 
 // 5s 源视频 + 8s 分镜 — 经典"源短于 scene"循环场景,
@@ -267,5 +271,299 @@ describe('isPreviewSegmentSourceExhausted', () => {
                 segment: longSourceSegment
             })
         ).toBe(true);
+    });
+});
+
+// fakeMediaElement:一个最小的 HTMLMediaElement 替身,只暴露我们要测的
+// 属性(addEventListener / removeEventListener / currentTime / playbackRate
+// / volume / play)。不需要 jsdom,纯对象 mock 就能验证 sync 行为。
+// 返回 `unknown` 因为 lib.dom.d.ts 的 HTMLMediaElement 类型有 370+ 属性,
+// fake 只暴露我们关心的;runtime 行为正确就够了。调用方按需 cast。
+const createFakeMediaElement = ({
+    initialCurrentTime = 0
+}: { initialCurrentTime?: number } = {}) => {
+    const listeners: Record<string, Set<() => void>> = {};
+    let currentTime = initialCurrentTime;
+    let playbackRate = 1;
+    let volume = 1;
+    const play = vi.fn(() => Promise.resolve());
+
+    const fake = {
+        addEventListener: vi.fn((event: string, handler: () => void) => {
+            listeners[event] = listeners[event] ?? new Set();
+            listeners[event].add(handler);
+        }),
+        get currentTime() {
+            return currentTime;
+        },
+        get playbackRate() {
+            return playbackRate;
+        },
+        get volume() {
+            return volume;
+        },
+        fireEnded: () => {
+            listeners['ended']?.forEach((h) => h());
+        },
+        play,
+        removeEventListener: vi.fn((event: string, handler: () => void) => {
+            listeners[event]?.delete(handler);
+        }),
+        set currentTime(value: number) {
+            currentTime = value;
+        },
+        set playbackRate(value: number) {
+            playbackRate = value;
+        },
+        set volume(value: number) {
+            volume = value;
+        }
+    };
+
+    return fake;
+};
+
+type FakeMediaElement = ReturnType<typeof createFakeMediaElement>;
+const asVideo = (fake: FakeMediaElement) =>
+    fake as unknown as HTMLVideoElement & {
+        fireEnded: () => void;
+        play: ReturnType<typeof vi.fn>;
+    };
+const asAudio = (fake: FakeMediaElement) =>
+    fake as unknown as HTMLAudioElement & {
+        play: ReturnType<typeof vi.fn>;
+    };
+const asMedia = (fake: FakeMediaElement) =>
+    fake as unknown as HTMLMediaElement & {
+        play: ReturnType<typeof vi.fn>;
+    };
+
+describe('createLoopVideoOnEnded — A-plan browser-native loop', () => {
+    it('returns undefined when video is null (no-op safety)', () => {
+        expect(
+            createLoopVideoOnEnded({ video: null, audio: null })
+        ).toBeUndefined();
+    });
+
+    it('attaches an "ended" listener to the video element', () => {
+        const fake = createFakeMediaElement();
+        const video = asVideo(fake);
+        const cleanup = createLoopVideoOnEnded({ video, audio: null });
+
+        expect(fake.addEventListener).toHaveBeenCalledTimes(1);
+        expect(fake.addEventListener.mock.calls[0]?.[0]).toBe('ended');
+        expect(typeof fake.addEventListener.mock.calls[0]?.[1]).toBe(
+            'function'
+        );
+
+        cleanup?.();
+    });
+
+    it('on "ended" event: resets video.currentTime to 0 and calls play()', () => {
+        const fake = createFakeMediaElement({ initialCurrentTime: 5 });
+        const video = asVideo(fake);
+        const cleanup = createLoopVideoOnEnded({ video, audio: null });
+
+        video.fireEnded();
+
+        expect(video.currentTime).toBe(0);
+        expect(video.play).toHaveBeenCalledTimes(1);
+
+        cleanup?.();
+    });
+
+    it('on "ended" event with audio: also resets audio.currentTime and plays audio', () => {
+        const fakeVideo = createFakeMediaElement({ initialCurrentTime: 5 });
+        const fakeAudio = createFakeMediaElement({ initialCurrentTime: 2 });
+        const video = asVideo(fakeVideo);
+        const audio = asAudio(fakeAudio);
+        const cleanup = createLoopVideoOnEnded({ video, audio });
+
+        video.fireEnded();
+
+        // 同步 loop,video 跟 audio 都从头开始播,不会出"视频 0s / 配音 2s"错位
+        expect(video.currentTime).toBe(0);
+        expect(audio.currentTime).toBe(0);
+        expect(video.play).toHaveBeenCalledTimes(1);
+        expect(audio.play).toHaveBeenCalledTimes(1);
+
+        cleanup?.();
+    });
+
+    it('cleanup removes the listener (subsequent "ended" events are ignored)', () => {
+        const fake = createFakeMediaElement();
+        const video = asVideo(fake);
+        const cleanup = createLoopVideoOnEnded({ video, audio: null });
+        cleanup?.();
+
+        // 卸载后,end 事件再触发也不该 reset/play。
+        video.fireEnded();
+
+        expect(fake.removeEventListener).toHaveBeenCalledWith(
+            'ended',
+            expect.any(Function)
+        );
+        expect(video.play).not.toHaveBeenCalled();
+    });
+});
+
+describe('syncMediaPlaybackSettings — onLoadedMetadata 行为(不设 currentTime)', () => {
+    it('sets playbackRate on the element', () => {
+        const fake = createFakeMediaElement();
+        const video = asMedia(fake);
+        syncMediaPlaybackSettings({ element: video, playbackRate: 1.5 });
+        expect(fake.playbackRate).toBe(1.5);
+    });
+
+    it('clamps playbackRate above 2 to 2 (preview safe range)', () => {
+        const fake = createFakeMediaElement();
+        const video = asMedia(fake);
+        syncMediaPlaybackSettings({ element: video, playbackRate: 100 });
+        expect(fake.playbackRate).toBe(2);
+    });
+
+    it('clamps playbackRate below 0.5 to 0.5 (preview safe range)', () => {
+        const fake = createFakeMediaElement();
+        const video = asMedia(fake);
+        syncMediaPlaybackSettings({ element: video, playbackRate: 0.1 });
+        expect(fake.playbackRate).toBe(0.5);
+    });
+
+    it('does NOT touch currentTime (regression: previously onLoadedMetadata seeked video)', () => {
+        // 之前 onLoadedMetadata 调了 syncMediaCurrentTime,频繁触发 video
+        // 重置 + 重新加载 metadata,导致画面卡顿。修复后 onLoadedMetadata
+        // 只设 playbackRate,video 自己从 0 开始播。
+        const fake = createFakeMediaElement({ initialCurrentTime: 3 });
+        const video = asMedia(fake);
+        syncMediaPlaybackSettings({ element: video, playbackRate: 1 });
+        expect(fake.currentTime).toBe(3);
+    });
+
+    it('no-op when element is null', () => {
+        expect(() =>
+            syncMediaPlaybackSettings({ element: null, playbackRate: 1.5 })
+        ).not.toThrow();
+    });
+});
+
+describe('syncAudioPlaybackSettings — onLoadedMetadata 行为(不设 currentTime)', () => {
+    it('sets volume and playbackRate on the audio element', () => {
+        const fake = createFakeMediaElement();
+        const audio = asMedia(fake);
+        syncAudioPlaybackSettings({
+            element: audio,
+            playbackRate: 1.2,
+            volume: 0.6
+        });
+        expect(fake.volume).toBe(0.6);
+        expect(fake.playbackRate).toBe(1.2);
+    });
+
+    it('clamps volume above 1 to 1', () => {
+        const fake = createFakeMediaElement();
+        const audio = asMedia(fake);
+        syncAudioPlaybackSettings({
+            element: audio,
+            playbackRate: 1,
+            volume: 5
+        });
+        expect(fake.volume).toBe(1);
+    });
+
+    it('clamps volume below 0 to 0', () => {
+        const fake = createFakeMediaElement();
+        const audio = asMedia(fake);
+        syncAudioPlaybackSettings({
+            element: audio,
+            playbackRate: 1,
+            volume: -1
+        });
+        expect(fake.volume).toBe(0);
+    });
+
+    it('defaults volume to 1 when not provided', () => {
+        const fake = createFakeMediaElement();
+        const audio = asMedia(fake);
+        // 先把 volume 改掉,验证会被 reset
+        fake.volume = 0.3;
+        syncAudioPlaybackSettings({ element: audio, playbackRate: 1 });
+        expect(fake.volume).toBe(1);
+    });
+
+    it('does NOT touch currentTime (regression: previously onLoadedMetadata seeked audio)', () => {
+        const fake = createFakeMediaElement({ initialCurrentTime: 1.5 });
+        const audio = asMedia(fake);
+        syncAudioPlaybackSettings({
+            element: audio,
+            playbackRate: 1,
+            volume: 0.8
+        });
+        expect(fake.currentTime).toBe(1.5);
+    });
+});
+
+describe('createPreviewVoicePlaybackKey — voice cue 切换不重置 audio', () => {
+    it('returns empty string when source is missing', () => {
+        expect(createPreviewVoicePlaybackKey({})).toBe('');
+        expect(createPreviewVoicePlaybackKey({ source: '' })).toBe('');
+        expect(createPreviewVoicePlaybackKey({ source: undefined })).toBe('');
+    });
+
+    it('returns the same key regardless of cueId (regression: 配音被打断 bug)', () => {
+        // 之前 key 包含 cueId,每个 voice cue 都让 audio remount,正在播
+        // 的配音被切断。修复后同 source 下所有 cue 共享同一个 audio 元素,
+        // 配音连续播。重现场景:一段长配音切分成多个 cue(标注句子边界),
+        // 切换 cue 时不应该打断。
+        const source = '/voice/segment-1.mp3';
+        const a = createPreviewVoicePlaybackKey({
+            playbackRate: 1,
+            source
+        });
+        const b = createPreviewVoicePlaybackKey({
+            playbackRate: 1,
+            source
+        });
+
+        expect(a).toBe(b);
+    });
+
+    it('returns different keys for different sources (cue 真的换了配音文件)', () => {
+        const a = createPreviewVoicePlaybackKey({
+            playbackRate: 1,
+            source: '/voice/cue-1.mp3'
+        });
+        const b = createPreviewVoicePlaybackKey({
+            playbackRate: 1,
+            source: '/voice/cue-2.mp3'
+        });
+
+        expect(a).not.toBe(b);
+    });
+
+    it('returns different keys for different playback rates (rate 切换要重置 audio)', () => {
+        const a = createPreviewVoicePlaybackKey({
+            playbackRate: 1,
+            source: '/voice/segment-1.mp3'
+        });
+        const b = createPreviewVoicePlaybackKey({
+            playbackRate: 1.5,
+            source: '/voice/segment-1.mp3'
+        });
+
+        expect(a).not.toBe(b);
+    });
+
+    it('defaults playbackRate to 1 when not provided', () => {
+        // 不传 rate 时,应该跟显式传 1 得到同样的 key(否则无意义重置)
+        const implicit = createPreviewVoicePlaybackKey({
+            source: '/voice/segment-1.mp3'
+        });
+        const explicit = createPreviewVoicePlaybackKey({
+            playbackRate: 1,
+            source: '/voice/segment-1.mp3'
+        });
+
+        expect(implicit).toBe(explicit);
+        expect(implicit).toBe('/voice/segment-1.mp3|1');
     });
 });

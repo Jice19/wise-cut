@@ -781,7 +781,10 @@ export const AgentConversationTimeline = ({
             {viewModel.messages.length > 0 ? (
                 viewModel.messages.map((message, index) => (
                     <div
-                        key={`${message.sequence}-${message.sourceEventType ?? index}`}
+                        // sequence 是 per-run 计数器,跨 run 合并(持久化
+                        // conversation)会重叠;sourceEventType 在两个相同
+                        // 类型事件上也会重复。index 永远唯一,做兜底。
+                        key={`${message.sequence}-${message.sourceEventType ?? 'event'}-${index}`}
                     >
                         {renderMessage({
                             canApprove: viewModel.canApprove,

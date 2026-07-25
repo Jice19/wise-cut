@@ -250,9 +250,13 @@ export const VisualConversationFeed = ({
                 </span>
             </div>
             <div className="grid gap-2.5">
-                {messages.map((message) => (
+                {messages.map((message, index) => (
                     <ConversationMessageCard
-                        key={`${message.sequence}-${message.role}`}
+                        // 持久化的 conversation 可能跨多个 run 合并(每个 run
+                        // 的 sequence 计数器都从 0 开始),单纯 sequence+role
+                        // 会重复。加 index 兜底,跟 AgentConversationTimeline
+                        // 同一个套路,保证 key 唯一。
+                        key={`${message.sequence}-${message.role}-${index}`}
                         message={message}
                     />
                 ))}
