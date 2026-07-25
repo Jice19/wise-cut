@@ -5,10 +5,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
-import {
-    sampleVideoProject,
-    type VideoProject
-} from '@wise-cut/video-project';
+import { sampleVideoProject, type VideoProject } from '@wise-cut/video-project';
 
 import { ConfigPanel } from '../renderer/components/config/ConfigPanel';
 import { filterMusicTracksByCategory } from '../renderer/components/config/music/MusicConfigPanel';
@@ -266,9 +263,7 @@ describe('MiaojianEditorScreen', () => {
         );
 
         expect(editorSource).toContain('ExportProgressDialog');
-        expect(editorSource).toContain(
-            'window.appAPI.videoExport.onProgress'
-        );
+        expect(editorSource).toContain('window.appAPI.videoExport.onProgress');
         expect(editorSource).toContain(
             'window.appAPI.videoExport.selectOutputPath'
         );
@@ -518,52 +513,6 @@ describe('MiaojianEditorScreen', () => {
                 segment
             })
         ).toBe(4_000);
-    });
-
-    it('freezes a short source video on its last frame until the next segment', () => {
-        const segment: PreviewSegment = {
-            alt: '短视频分镜',
-            endMs: 10_000,
-            id: 'segment_short_video',
-            source: 'app-media://project/project_preview/video/video_short',
-            sourceEndMs: 5_000,
-            sourceStartMs: 0,
-            startMs: 0,
-            subtitleCues: []
-        };
-
-        expect(
-            getPreviewSegmentLocalTimeMs({
-                currentTimeMs: 7_500,
-                segment
-            })
-        ).toBe(5_000);
-    });
-
-    it('detects when a video source is shorter than its segment', () => {
-        const segment: PreviewSegment = {
-            alt: '短视频分镜',
-            endMs: 10_000,
-            id: 'segment_short_video',
-            source: 'app-media://project/project_preview/video/video_short',
-            sourceEndMs: 5_000,
-            sourceStartMs: 1_000,
-            startMs: 0,
-            subtitleCues: []
-        };
-
-        expect(
-            isPreviewSegmentSourceExhausted({
-                currentTimeMs: 3_999,
-                segment
-            })
-        ).toBe(false);
-        expect(
-            isPreviewSegmentSourceExhausted({
-                currentTimeMs: 4_000,
-                segment
-            })
-        ).toBe(true);
     });
 
     it('advances playback time from the actual animation frame delta', () => {

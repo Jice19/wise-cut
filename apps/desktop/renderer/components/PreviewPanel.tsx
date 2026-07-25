@@ -1,4 +1,3 @@
-
 import { useEffect, useRef } from 'react';
 
 import type {
@@ -73,14 +72,23 @@ export const getPreviewSegmentLocalTimeMs = ({
     if (!segment) return currentTimeMs;
 
     const playbackRate = clampPreviewPlaybackRate(segment.playbackRate);
-    const localTimeMs =
-        segment.sourceStartMs +
-        Math.max(0, currentTimeMs - segment.startMs) * playbackRate;
-
-    return Math.min(
-        Math.max(localTimeMs, segment.sourceStartMs),
-        segment.sourceEndMs
+    const sourceDurationMs = Math.max(
+        0,
+        segment.sourceEndMs - segment.sourceStartMs
     );
+    const elapsedInSegmentMs = Math.max(0, currentTimeMs - segment.startMs);
+    const sourceElapsedMs = elapsedInSegmentMs * playbackRate;
+
+    if (sourceDurationMs > 0) {
+        // 源比 scene 短时,在 source 区间内 mod loop,跟 ffmpeg export
+        // 的 `-stream_loop -1` 语义一致(apps/desktop/client/video-export-ffmpeg.ts
+        // 第 678 行)。源比 scene 长时,sourceElapsedMs < sourceDurationMs,
+        // mod 等于自身,跟 ffmpeg 的 trim 行为一致。
+        return segment.sourceStartMs + (sourceElapsedMs % sourceDurationMs);
+    }
+
+    // source 长度为 0 的退化情况(不该发生,但防一下)
+    return segment.sourceStartMs;
 };
 
 export const isPreviewSegmentSourceExhausted = ({
@@ -92,13 +100,10 @@ export const isPreviewSegmentSourceExhausted = ({
 }) => {
     if (!segment) return false;
 
-    const sourceDurationMs = Math.max(
-        0,
-        segment.sourceEndMs - segment.sourceStartMs
-    );
-    const playbackRate = clampPreviewPlaybackRate(segment.playbackRate);
-
-    return currentTimeMs - segment.startMs >= sourceDurationMs / playbackRate;
+    // scene 结束才算 exhausted。源比 scene 短时,我们循环播源,不应该
+    // 在源末尾就 stop play;源比 scene 长时,playbackRate 会让源播得
+    // 比实时慢,自然会在 sourceEndMs 时停下,但此时 scene 已经结束。
+    return currentTimeMs >= segment.endMs;
 };
 
 export const createPreviewTimeUpdate = ({
