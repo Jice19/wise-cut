@@ -1,4 +1,3 @@
-
 import { useEffect, useState } from 'react';
 
 import type { VideoProject, VoiceClip } from '@wise-cut/video-project';
@@ -24,6 +23,11 @@ import { ModeRail } from '../components/ModeRail';
 import { PreviewPanel } from '../components/PreviewPanel';
 import { ScriptPanel } from '../components/ScriptPanel';
 import { TimelinePanel } from '../components/TimelinePanel';
+import {
+    setUserPreferenceMusicSettings,
+    setUserPreferenceSubtitleSettings,
+    useUserPreferences
+} from '../stores/user-preferences-store';
 import {
     defaultMusicSettings,
     defaultSubtitleSettings,
@@ -200,11 +204,13 @@ export const MiaojianEditorScreen = ({
     >();
     const [titleSaveStatus, setTitleSaveStatus] = useState(editorHeader.status);
     const [voicePreviewStopSignal, setVoicePreviewStopSignal] = useState(0);
-    const [musicSettings, setMusicSettings] =
-        useState<MusicSettings>(defaultMusicSettings);
-    const [subtitleSettings, setSubtitleSettings] = useState<SubtitleSettings>(
-        defaultSubtitleSettings
-    );
+    // 音乐 + 字幕设置改成手写 store + localStorage 持久化,跨项目 / 跨
+    // 会话保留(之前 useState + 加载项目时 useEffect 强制重置成 default,
+    // 用户改的全都丢了)。实现见 user-preferences-store.ts。
+    const musicSettings = useUserPreferences((s) => s.musicSettings);
+    const setMusicSettings = setUserPreferenceMusicSettings;
+    const subtitleSettings = useUserPreferences((s) => s.subtitleSettings);
+    const setSubtitleSettings = setUserPreferenceSubtitleSettings;
     const [voiceSettings, setVoiceSettings] = useState<VideoAgentVoiceSettings>(
         () => resolveProjectVoiceSettings(project)
     );
@@ -260,8 +266,9 @@ export const MiaojianEditorScreen = ({
         setVoiceRegenerationProgress(undefined);
         setSelectedSceneId(undefined);
         setTitleSaveStatus(editorHeader.status);
-        setMusicSettings(defaultMusicSettings);
-        setSubtitleSettings(defaultSubtitleSettings);
+        // musicSettings / subtitleSettings 改用 zustand persist 持久化
+        // (user-preferences-store),加载项目时**不**重置 — 用户改过的
+        // 偏好跨项目 / 跨会话保留,见 store 文件说明。
         setVoicePreviewStopSignal(0);
         setVoiceSettings(resolveProjectVoiceSettings(project));
         setSelectedVoice(resolveProjectVoiceSelection(project));
