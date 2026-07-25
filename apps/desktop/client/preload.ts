@@ -1,8 +1,12 @@
-
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 
 import type { VideoProject } from '@wise-cut/video-project';
 
+import {
+    apiConfigIpcChannels,
+    type ApiConfigSetInput,
+    type ApiConfigStatus
+} from '../shared/api-config-channels';
 import type { CustomVoiceImportInput } from '../shared/custom-voice';
 import { customVoiceIpcChannels } from '../shared/custom-voice-channels';
 import type {
@@ -25,6 +29,13 @@ import { videoExportIpcChannels } from '../shared/video-export-channels';
 import { videoProjectIpcChannels } from '../shared/video-project-channels';
 
 contextBridge.exposeInMainWorld('miaomaAPI', {
+    apiConfig: {
+        clear: async () => ipcRenderer.invoke(apiConfigIpcChannels.clear),
+        getStatus: async (): Promise<ApiConfigStatus> =>
+            ipcRenderer.invoke(apiConfigIpcChannels.getStatus),
+        set: async (input: ApiConfigSetInput) =>
+            ipcRenderer.invoke(apiConfigIpcChannels.set, input)
+    },
     ping: async () => ({ success: true }),
     customVoice: {
         checkIndexTts2: async () =>
@@ -89,7 +100,11 @@ contextBridge.exposeInMainWorld('miaomaAPI', {
             ipcRenderer.invoke(videoAgentIpcChannels.regenerateVoices, input),
         reportSelectedFrames: async (
             input: VideoAgentReportSelectedFramesInput
-        ) => ipcRenderer.invoke(videoAgentIpcChannels.reportSelectedFrames, input),
+        ) =>
+            ipcRenderer.invoke(
+                videoAgentIpcChannels.reportSelectedFrames,
+                input
+            ),
         start: async (input: VideoAgentStartInput) =>
             ipcRenderer.invoke(videoAgentIpcChannels.start, input)
     },

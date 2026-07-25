@@ -1,6 +1,4 @@
 /* */
-import { parse } from 'dotenv';
-import { existsSync, readFileSync } from 'node:fs';
 import { z } from 'zod';
 
 const AgentEnvSchema = z.object({
@@ -29,21 +27,20 @@ export class AgentEnvValidationError extends Error {
     }
 }
 
+/**
+ * 从 process.env 里读 video agent 需要的 4 个环境变量(LLM_MODEL /
+ * TTS_MODEL / BASE_URL / API_KEY),schema 校验后返回。
+ *
+ * 之前还支持读 .env 文件,现在弃用 — 配置改由 Electron 主进程从
+ * safeStorage 加密配置里读出来,在调本函数之前注入 process.env。
+ * 这样 .env 文件不再是 single source of truth,UI 配置说了算。
+ */
 export const loadAgentEnv = ({
-    envFilePath,
     processEnv = process.env
 }: {
-    envFilePath?: string;
     processEnv?: EnvironmentValues;
 } = {}): AgentEnv => {
-    const dotenvValues =
-        envFilePath && existsSync(envFilePath)
-            ? parse(readFileSync(envFilePath))
-            : {};
-    const parsed = AgentEnvSchema.safeParse({
-        ...dotenvValues,
-        ...processEnv
-    });
+    const parsed = AgentEnvSchema.safeParse(processEnv);
 
     if (!parsed.success) {
         throw new AgentEnvValidationError(

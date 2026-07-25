@@ -1,4 +1,3 @@
-
 import type {
     WorkspaceBrand,
     WorkspaceCreateCard,
@@ -24,7 +23,12 @@ export const getWorkspaceNavItems = (
     {
         label: '首页',
         icon: 'house',
-        tone: 'default'
+        tone: 'default',
+        // 没有 view / href 时,WorkspaceSidebarNavItem 会把 item 渲染
+        // 成 <div> 没 onClick,导致 "首页" 看起来能点实际没反应。
+        // 显式给 view 让它走 button 分支,点击切到 create 视图
+        // (create 视图就是首页的内容,/ 路由默认也是 create)。
+        view: 'create'
     },
     {
         label: '创作',

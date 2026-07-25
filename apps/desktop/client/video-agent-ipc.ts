@@ -198,30 +198,6 @@ const normalizeRegenerateVoicesInput = (
     ...normalizeVideoAgentVoiceSettings(input)
 });
 
-const findAgentEnvFilePath = () => {
-    const candidates = [process.cwd()];
-    let currentDirectory = process.cwd();
-
-    for (let index = 0; index < 4; index += 1) {
-        const parentDirectory = path.dirname(currentDirectory);
-
-        if (parentDirectory === currentDirectory) break;
-
-        candidates.push(parentDirectory);
-        currentDirectory = parentDirectory;
-    }
-
-    for (const directory of candidates) {
-        for (const fileName of ['.env.local', '.env']) {
-            const filePath = path.join(directory, fileName);
-
-            if (existsSync(filePath)) return filePath;
-        }
-    }
-
-    return undefined;
-};
-
 const createDefaultProviders = ({
     customVoiceReferenceResolver,
     loadEnv,
@@ -235,8 +211,9 @@ const createDefaultProviders = ({
         };
     }
 
-    const env =
-        loadEnv?.() ?? loadAgentEnv({ envFilePath: findAgentEnvFilePath() });
+    // loadAgentEnv 现在只读 process.env — 配置由 main 启动时从
+    // safeStorage 注入,不再读 .env 文件。
+    const env = loadEnv?.() ?? loadAgentEnv();
     const defaultTtsProvider =
         ttsProvider ?? new VolcengineTtsProvider({ env });
     const resolvedTtsProvider =

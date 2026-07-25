@@ -13,6 +13,7 @@ import {
     reviseAgentRun,
     useAgentRunSnapshot
 } from '../stores/agent-run-store';
+import { navigateToClientRoute } from '../utils/clientNavigation';
 
 const formatHeaderTime = () =>
     new Intl.DateTimeFormat('zh-CN', {
@@ -48,12 +49,28 @@ export const MiaojianCreateRunScreen = ({ runId }: { runId?: string }) => {
         void reviseAgentRun(resolvedRunId, feedback);
     };
 
+    const handleBackToHome = () => {
+        navigateToClientRoute('/');
+    };
+
     return (
         <main
             data-create-run-message-page="true"
             className="relative h-screen min-h-[720px] overflow-hidden bg-canvas text-ink"
         >
             <WindowDragRegion />
+
+            {/* ── Top-left: 返回首页 按钮(独立于步骤指示器,
+                 浮在最左,不挤中间内容) ── */}
+            <button
+                type="button"
+                data-create-run-back-to-home="true"
+                onClick={handleBackToHome}
+                className="absolute left-4 top-4 z-10 inline-flex h-8 items-center gap-1.5 rounded-full bg-white/90 px-3 text-[12px] font-semibold text-[#1C1917] shadow-[0_2px_8px_rgba(28,25,23,0.06)] backdrop-blur transition-colors hover:bg-white"
+            >
+                <span aria-hidden="true">←</span>
+                <span>首页</span>
+            </button>
 
             {/* ── Top: process navigation bar ── */}
             <AgentProcessNav

@@ -1,4 +1,3 @@
-
 import type { VideoProject } from '@wise-cut/video-project';
 
 import type {
@@ -6,6 +5,10 @@ import type {
     VideoProjectFileResult,
     VideoProjectOperationResult
 } from './client/video-project-store';
+import type {
+    ApiConfigSetInput,
+    ApiConfigStatus
+} from './shared/api-config-channels';
 import type {
     CustomVoiceImportData,
     CustomVoiceImportInput,
@@ -35,6 +38,13 @@ import type {
 declare global {
     interface Window {
         miaomaAPI: {
+            apiConfig: {
+                clear: () => Promise<{ success: boolean }>;
+                getStatus: () => Promise<ApiConfigStatus>;
+                set: (
+                    input: ApiConfigSetInput
+                ) => Promise<{ success: boolean }>;
+            };
             customVoice: {
                 checkIndexTts2: () => Promise<
                     CustomVoiceOperationResult<CustomVoiceProviderStatus>

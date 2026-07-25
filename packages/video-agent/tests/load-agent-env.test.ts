@@ -1,65 +1,53 @@
 /* */
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import {
     AgentEnvValidationError,
     loadAgentEnv
 } from '../src/config/load-agent-env';
 
+const completeEnv = {
+    API_KEY: 'test-api-key',
+    BASE_URL: 'https://ark.cn-beijing.volces.com/api/plan/v3',
+    LLM_MODEL: 'doubao-seed-2.0-pro',
+    TTS_MODEL: 'seed-tts-2.0'
+};
+
 describe('loadAgentEnv', () => {
-    let tempDirectory: string;
+    const originalApiKey = process.env.API_KEY;
 
-    beforeEach(async () => {
-        tempDirectory = await mkdtemp(path.join(tmpdir(), 'app-env-'));
+    afterEach(() => {
+        // 保留原始 API_KEY,免得污染 host 环境。
+        if (originalApiKey === undefined) {
+            delete process.env.API_KEY;
+        } else {
+            process.env.API_KEY = originalApiKey;
+        }
     });
 
-    afterEach(async () => {
-        await rm(tempDirectory, { force: true, recursive: true });
+    it('returns the validated agent env from process.env', () => {
+        const env = loadAgentEnv({ processEnv: completeEnv });
+
+        expect(env).toEqual(completeEnv);
     });
 
-    it('loads model provider settings from dotenv without mutating process env', async () => {
-        const envFilePath = path.join(tempDirectory, '.env.local');
-        await writeFile(
-            envFilePath,
-            [
-                'LLM_MODEL=doubao-seed-2.0-pro',
-                'TTS_MODEL=seed-tts-2.0',
-                'BASE_URL=https://ark.cn-beijing.volces.com/api/plan/v3',
-                'API_KEY=test-api-key'
-            ].join('\n')
-        );
+    it('does not mutate process.env when reading from an injected env', () => {
+        const before = process.env.API_KEY;
+        loadAgentEnv({ processEnv: completeEnv });
 
-        const env = loadAgentEnv({
-            envFilePath,
-            processEnv: {}
-        });
-
-        expect(env).toEqual({
-            API_KEY: 'test-api-key',
-            BASE_URL: 'https://ark.cn-beijing.volces.com/api/plan/v3',
-            LLM_MODEL: 'doubao-seed-2.0-pro',
-            TTS_MODEL: 'seed-tts-2.0'
-        });
-        expect(process.env.API_KEY).not.toBe('test-api-key');
+        expect(process.env.API_KEY).toBe(before);
     });
 
-    it('returns a structured configuration error for missing required settings', () => {
+    it('throws AgentEnvValidationError with structured issues when fields are missing', () => {
         expect(() =>
             loadAgentEnv({
-                processEnv: {
-                    LLM_MODEL: 'doubao-seed-2.0-pro'
-                }
+                processEnv: { LLM_MODEL: 'doubao-seed-2.0-pro' }
             })
         ).toThrow(AgentEnvValidationError);
 
         try {
             loadAgentEnv({
-                processEnv: {
-                    LLM_MODEL: 'doubao-seed-2.0-pro'
-                }
+                processEnv: { LLM_MODEL: 'doubao-seed-2.0-pro' }
             });
         } catch (error) {
             expect(error).toBeInstanceOf(AgentEnvValidationError);
@@ -81,5 +69,24 @@ describe('loadAgentEnv', () => {
                 }
             ]);
         }
+    });
+
+    it('rejects an invalid BASE_URL (not a url)', () => {
+        expect(() =>
+            loadAgentEnv({
+                processEnv: {
+                    ...completeEnv,
+                    BASE_URL: 'not-a-url'
+                }
+            })
+        ).toThrow(AgentEnvValidationError);
+    });
+
+    it('rejects empty string fields', () => {
+        expect(() =>
+            loadAgentEnv({
+                processEnv: { ...completeEnv, API_KEY: '' }
+            })
+        ).toThrow(AgentEnvValidationError);
     });
 });
