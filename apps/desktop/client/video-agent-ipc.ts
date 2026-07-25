@@ -294,9 +294,17 @@ const graphResultToOperationResult = ({
 
 export const createDemoVideoAgentController = ({
     createRunId = () => `run_${randomUUID()}`,
-    now = () => new Date().toISOString()
+    now = () => new Date().toISOString(),
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    outputBaseDir: _outputBaseDir
 }: {
     createRunId?: () => string;
+    /**
+     * 可选:工程落盘目录。Demo controller 不落盘,只用来给上层传参时
+     * 跟 LangGraph controller 保持一致(避免 controller-factory 之类的
+     * 调用方根据 provider 切换参数)。
+     */
+    outputBaseDir?: string;
     now?: () => string;
 } = {}): VideoAgentIpcController => {
     const runs = new Map<string, DemoVideoAgentRunState>();

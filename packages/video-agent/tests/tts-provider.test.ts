@@ -307,6 +307,7 @@ describe('IndexTts2Provider', () => {
         const calls: string[] = [];
         const provider = new RoutingTtsProvider({
             customProvider: {
+                providerName: 'fake-custom',
                 synthesizeSpeech: async (input) => {
                     calls.push(`custom:${input.voice}`);
 
@@ -319,6 +320,7 @@ describe('IndexTts2Provider', () => {
                 }
             },
             defaultProvider: {
+                providerName: 'fake-default',
                 synthesizeSpeech: async (input) => {
                     calls.push(`default:${input.voice}`);
 

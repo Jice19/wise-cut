@@ -15,12 +15,12 @@ import { app } from 'electron';
 
 import {
     createDemoVideoAgentController,
-    type VideoAgentController
+    type VideoAgentIpcController
 } from './video-agent-ipc';
 
 export type VideoAgentProvider = 'demo' | 'langgraph';
 
-export const createVideoAgentController = (): VideoAgentController => {
+export const createVideoAgentController = (): VideoAgentIpcController => {
     const provider = (process.env.VIDEO_AGENT_PROVIDER ??
         'demo') as VideoAgentProvider;
 

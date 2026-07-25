@@ -718,9 +718,7 @@ describe('video export', () => {
         const videoAsset = project.assets.videos[0];
         // Sample asset is 12000ms; pretend it's only 5000ms (matching
         // the user's 视频3.mp4). Scene is 14000ms.
-        project.assets.videos = [
-            { ...videoAsset, durationMs: 5_000, fps: 24 }
-        ];
+        project.assets.videos = [{ ...videoAsset, durationMs: 5_000, fps: 24 }];
         project.assets.voices = [
             { ...project.assets.voices[0], durationMs: 14_000 }
         ];
@@ -791,9 +789,10 @@ describe('video export', () => {
         // pipeline: looping frames are real motion, so no clone-tail.
         // The filter chain may still contain `tpad=stop_mode=clone:stop_duration=0`
         // for the trimmed end-of-source safety, but not a multi-second freeze.
-        const tpadMatches = command.filterComplex.match(
-            /tpad=stop_mode=clone:stop_duration=([\d.]+)/g
-        ) ?? [];
+        const tpadMatches =
+            command.filterComplex.match(
+                /tpad=stop_mode=clone:stop_duration=([\d.]+)/g
+            ) ?? [];
         for (const match of tpadMatches) {
             const seconds = Number(match.split('=').pop());
             expect(seconds).toBeLessThanOrEqual(0.001);
@@ -805,9 +804,7 @@ describe('video export', () => {
         // the outer trim=duration caps the timeline length.
         expect(command.filterComplex).not.toMatch(/trim=start=0:end=5/);
         expect(command.filterComplex).toContain('trim=duration=14');
-        expect(command.filterComplex).toMatch(
-            /setpts=PTS-STARTPTS\+0\/TB/
-        );
+        expect(command.filterComplex).toMatch(/setpts=PTS-STARTPTS\+0\/TB/);
     });
 
     it('does not loop a source that already covers the scene timeline', async () => {
@@ -882,12 +879,24 @@ describe('video export', () => {
         // RUN_EXPORT_E2E=1 and remove this `.skip` when validating
         // end-to-end. The unit-level test above already pins the
         // filter shape, so this only adds confidence.
+        const { createVideoExportFfmpegCommand } = await import(
+            '../client/video-export-ffmpeg'
+        );
         const { execFile } = await import('node:child_process');
         const { promisify } = await import('node:util');
         const { mkdtemp, rm } = await import('node:fs/promises');
-        const execFileAsync = promisify(execFile);
-        const mkdtempAsync = promisify(mkdtemp);
-        const rmAsync = promisify(rm);
+        const execFileAsync = promisify(execFile) as unknown as (
+            file: string,
+            args: readonly string[],
+            options?: { stdio?: 'pipe' | 'ignore' | 'inherit' }
+        ) => Promise<{ stdout: string; stderr: string }>;
+        const mkdtempAsync = promisify(mkdtemp) as (
+            prefix: string
+        ) => Promise<string>;
+        const rmAsync = promisify(rm) as (
+            path: string,
+            options?: { recursive?: boolean; force?: boolean }
+        ) => Promise<void>;
 
         const sourcePath = process.env.SOURCE_VIDEO;
         if (!sourcePath) {
@@ -930,7 +939,9 @@ describe('video export', () => {
             }
         ];
         const videoAssetId = project.assets.videos[0].id;
-        project.assets.videos = [{ ...project.assets.videos[0], id: videoAssetId }];
+        project.assets.videos = [
+            { ...project.assets.videos[0], id: videoAssetId }
+        ];
         const voiceAssetId = project.assets.voices[0].id;
         project.tracks = [
             {

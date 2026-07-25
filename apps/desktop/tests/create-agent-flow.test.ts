@@ -6,10 +6,24 @@ import { resolve } from 'node:path';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import {
-    sampleVideoProject,
-    type VideoProject
-} from '@wise-cut/video-project';
+import type { TtsProvider } from '@wise-cut/video-agent';
+
+import { sampleVideoProject, type VideoProject } from '@wise-cut/video-project';
+
+/**
+ * 构造一个满足 TtsProvider 接口的 fake,自带 providerName。
+ * 测试用 — TtsProvider 是 readonly providerName: string,以前每个测试
+ * 自己写 `{ synthesizeSpeech: ... }` 都会缺 providerName,改用这个 helper
+ * 一次填好。
+ */
+const makeFakeTtsProvider = ({
+    synthesizeSpeech
+}: {
+    synthesizeSpeech: TtsProvider['synthesizeSpeech'];
+}): TtsProvider => ({
+    providerName: 'fake-tts',
+    synthesizeSpeech
+});
 
 const waitFor = async (
     predicate: () => boolean,
@@ -168,6 +182,7 @@ describe('create agent flow', () => {
             },
             store: {} as never,
             ttsProvider: {
+                providerName: 'fake-tts',
                 synthesizeSpeech: async ({ outputPath, text }) => {
                     ttsCalls.push(text);
 
@@ -813,6 +828,7 @@ describe('create agent flow', () => {
                 }
             };
             const ttsProvider = {
+                providerName: 'fake-tts',
                 synthesizeSpeech: async ({
                     outputPath,
                     text,
@@ -1031,6 +1047,7 @@ describe('create agent flow', () => {
                 ]
             };
             const ttsProvider = {
+                providerName: 'fake-tts',
                 synthesizeSpeech: async ({
                     outputPath,
                     text,
@@ -1234,6 +1251,7 @@ describe('create agent flow', () => {
                 },
                 store,
                 ttsProvider: {
+                    providerName: 'fake-tts',
                     synthesizeSpeech: async ({
                         outputPath,
                         speedRatio,
@@ -1457,6 +1475,7 @@ describe('create agent flow', () => {
                 now: () => '2026-06-23T09:00:00.000Z',
                 store,
                 ttsProvider: {
+                    providerName: 'fake-tts',
                     synthesizeSpeech: async ({
                         outputPath,
                         speedRatio,
@@ -1685,6 +1704,7 @@ describe('create agent flow', () => {
                 now: () => '2026-06-23T10:00:00.000Z',
                 store,
                 ttsProvider: {
+                    providerName: 'fake-tts',
                     synthesizeSpeech: async ({
                         outputPath,
                         speedRatio,
@@ -1922,6 +1942,7 @@ describe('create agent flow', () => {
                 now: () => '2026-06-23T10:00:00.000Z',
                 store,
                 ttsProvider: {
+                    providerName: 'fake-tts',
                     synthesizeSpeech: async ({ outputPath, text }) => {
                         ttsCalls.push(text);
                         await writeFile(outputPath, new Uint8Array([7, 8, 9]));
@@ -2060,6 +2081,7 @@ describe('create agent flow', () => {
                 },
                 store,
                 ttsProvider: {
+                    providerName: 'fake-tts',
                     synthesizeSpeech: async ({ outputPath, text }) => {
                         ttsCalls.push(text);
                         releaseFirstSynthesis?.();
@@ -2301,9 +2323,9 @@ describe('create agent flow', () => {
             // because the fake ffprobe can't actually probe anything.
             expect(assets[0]?.durationMs).toBe(5000);
             expect(assets[1]?.durationMs).toBe(6500);
-            expect(
-                warnings.some((line) => line.includes('[scanAssets]'))
-            ).toBe(true);
+            expect(warnings.some((line) => line.includes('[scanAssets]'))).toBe(
+                true
+            );
         } finally {
             await rm(directory, { recursive: true, force: true });
         }
@@ -2368,8 +2390,7 @@ describe('create agent flow', () => {
                     script: 's',
                     subtitleLines: ['s'],
                     title: 't',
-                    visualIntent: 'v',
-                    voiceAssetId: 'voice_only'
+                    visualIntent: 'v'
                 }
             ],
             voices: [
@@ -2395,7 +2416,14 @@ describe('create agent flow', () => {
 
         const videoClip = project.tracks
             .find((track) => track.kind === 'video')
-            ?.clips.find((clip) => clip.assetId === 'video_asset_long');
+            ?.clips.find(
+                (
+                    clip
+                ): clip is VideoProject['tracks'][number]['clips'][number] & {
+                    kind: 'video';
+                } =>
+                    clip.kind === 'video' && clip.assetId === 'video_asset_long'
+            );
         // The scene is 8s long and the asset is 10s — sourceEndMs should
         // land at scene length (8s), not be clamped down by the
         // placeholder-duration math.
