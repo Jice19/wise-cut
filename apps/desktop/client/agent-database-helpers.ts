@@ -47,6 +47,26 @@ export type AgentRunRecord = {
     status: AgentRunStatus;
 };
 
+export type AssetUnderstandingRecord = {
+    actions: string[];
+    assetId: string;
+    createdAt: string;
+    description: string;
+    mood: string;
+    objects: string[];
+    promptMatchReason: string;
+    promptMatchScore: number;
+    runId: string;
+    suggestedSceneType: string;
+};
+
+export type UpsertAssetUnderstandingInput = Omit<
+    AssetUnderstandingRecord,
+    'createdAt'
+> & {
+    createdAt?: string;
+};
+
 const requireDatabase = ({
     database
 }: {
@@ -330,6 +350,200 @@ const listAgentRuns = ({
     }));
 };
 
+const rowToAssetUnderstanding = (row: {
+    actions_json: string;
+    asset_id: string;
+    created_at: string;
+    description: string;
+    mood: string;
+    objects_json: string;
+    prompt_match_reason: string;
+    prompt_match_score: number;
+    run_id: string;
+    suggested_scene_type: string;
+}): AssetUnderstandingRecord => {
+    const parsedObjects = (() => {
+        try {
+            const parsed: unknown = JSON.parse(row.objects_json);
+
+            return Array.isArray(parsed)
+                ? parsed.filter(
+                      (item): item is string => typeof item === 'string'
+                  )
+                : [];
+        } catch {
+            return [];
+        }
+    })();
+    const parsedActions = (() => {
+        try {
+            const parsed: unknown = JSON.parse(row.actions_json);
+
+            return Array.isArray(parsed)
+                ? parsed.filter(
+                      (item): item is string => typeof item === 'string'
+                  )
+                : [];
+        } catch {
+            return [];
+        }
+    })();
+
+    return {
+        actions: parsedActions,
+        assetId: row.asset_id,
+        createdAt: row.created_at,
+        description: row.description,
+        mood: row.mood,
+        objects: parsedObjects,
+        promptMatchReason: row.prompt_match_reason,
+        promptMatchScore: row.prompt_match_score,
+        runId: row.run_id,
+        suggestedSceneType: row.suggested_scene_type
+    };
+};
+
+const upsertAssetUnderstanding = ({
+    database,
+    run
+}: {
+    database: DatabaseSync;
+    run: UpsertAssetUnderstandingInput;
+}): AssetUnderstandingRecord => {
+    const createdAt = run.createdAt ?? new Date().toISOString();
+
+    requireDatabase({ database })
+        .prepare(
+            `insert into asset_understandings (
+                run_id,
+                asset_id,
+                description,
+                mood,
+                objects_json,
+                actions_json,
+                suggested_scene_type,
+                prompt_match_reason,
+                prompt_match_score,
+                created_at
+            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            on conflict (run_id, asset_id) do update set
+                description = excluded.description,
+                mood = excluded.mood,
+                objects_json = excluded.objects_json,
+                actions_json = excluded.actions_json,
+                suggested_scene_type = excluded.suggested_scene_type,
+                prompt_match_reason = excluded.prompt_match_reason,
+                prompt_match_score = excluded.prompt_match_score,
+                created_at = excluded.created_at`
+        )
+        .run(
+            run.runId,
+            run.assetId,
+            run.description,
+            run.mood,
+            JSON.stringify(run.objects),
+            JSON.stringify(run.actions),
+            run.suggestedSceneType,
+            run.promptMatchReason,
+            run.promptMatchScore,
+            createdAt
+        );
+
+    return {
+        actions: run.actions,
+        assetId: run.assetId,
+        createdAt,
+        description: run.description,
+        mood: run.mood,
+        objects: run.objects,
+        promptMatchReason: run.promptMatchReason,
+        promptMatchScore: run.promptMatchScore,
+        runId: run.runId,
+        suggestedSceneType: run.suggestedSceneType
+    };
+};
+
+const findAssetUnderstanding = ({
+    database,
+    run
+}: {
+    database: DatabaseSync;
+    run: { assetId: string; runId: string };
+}): AssetUnderstandingRecord | null => {
+    const row = requireDatabase({ database })
+        .prepare(
+            `select
+                run_id,
+                asset_id,
+                description,
+                mood,
+                objects_json,
+                actions_json,
+                suggested_scene_type,
+                prompt_match_reason,
+                prompt_match_score,
+                created_at
+            from asset_understandings
+            where run_id = ? and asset_id = ?`
+        )
+        .get(run.runId, run.assetId) as
+        | {
+              actions_json: string;
+              asset_id: string;
+              created_at: string;
+              description: string;
+              mood: string;
+              objects_json: string;
+              prompt_match_reason: string;
+              prompt_match_score: number;
+              run_id: string;
+              suggested_scene_type: string;
+          }
+        | undefined;
+
+    return row ? rowToAssetUnderstanding(row) : null;
+};
+
+const listAssetUnderstandingsByRun = ({
+    database,
+    runId
+}: {
+    database: DatabaseSync;
+    runId: string;
+}): AssetUnderstandingRecord[] => {
+    const rows = requireDatabase({ database })
+        .prepare(
+            `select
+                run_id,
+                asset_id,
+                description,
+                mood,
+                objects_json,
+                actions_json,
+                suggested_scene_type,
+                prompt_match_reason,
+                prompt_match_score,
+                created_at
+            from asset_understandings
+            where run_id = ?
+            order by created_at asc`
+        )
+        .all(runId) as Array<{
+        actions_json: string;
+        asset_id: string;
+        created_at: string;
+        description: string;
+        mood: string;
+        objects_json: string;
+        prompt_match_reason: string;
+        prompt_match_score: number;
+        run_id: string;
+        suggested_scene_type: string;
+    }>;
+
+    return rows.map((row) => rowToAssetUnderstanding(row));
+};
+
 export const createAgentDatabaseHelpers = ({
     database
 }: {
@@ -352,7 +566,13 @@ export const createAgentDatabaseHelpers = ({
         status: AgentRunStatus;
     }) => recordRunFinished({ database, run: input }),
     recordRunStarted: (input: { id: string; startedAt: string }) =>
-        recordRunStarted({ database, run: input })
+        recordRunStarted({ database, run: input }),
+    upsertAssetUnderstanding: (input: UpsertAssetUnderstandingInput) =>
+        upsertAssetUnderstanding({ database, run: input }),
+    findAssetUnderstanding: (input: { runId: string; assetId: string }) =>
+        findAssetUnderstanding({ database, run: input }),
+    listAssetUnderstandingsByRun: (input: { runId: string }) =>
+        listAssetUnderstandingsByRun({ database, runId: input.runId })
 });
 
 export type AgentDatabaseHelpers = ReturnType<

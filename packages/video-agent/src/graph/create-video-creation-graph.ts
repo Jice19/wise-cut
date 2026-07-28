@@ -111,11 +111,16 @@ const createCompiledGraph = ({
 };
 
 export const createVideoCreationGraph = ({
-    checkpointer = createVideoCreationCheckpointer(),
+    checkpointerDbPath,
     emit,
     tools
 }: {
-    checkpointer?: BaseCheckpointSaver;
+    /**
+     * 可选:SQLite 文件路径。传了以后会按 runId 把 checkpoint 持久化到
+     * 这个文件里,进程重启后可以恢复未完成的 agent run。
+     * 不传则用 in-memory checkpointer(测试场景用)。
+     */
+    checkpointerDbPath?: string;
     emit?: (event: AgentRunEvent) => void;
     tools: VideoAgentTools;
 }): VideoCreationGraphRunner => {
@@ -136,7 +141,9 @@ export const createVideoCreationGraph = ({
         return created;
     };
     const app = createCompiledGraph({
-        checkpointer,
+        checkpointer: createVideoCreationCheckpointer({
+            dbPath: checkpointerDbPath
+        }),
         emit: (event) => {
             getEmitter(event.runId).emit(event);
         },

@@ -672,6 +672,7 @@ export const createLangGraphVideoAgentController = ({
     // - selectedFramesByRunId: renderer 实时推过来的代表帧(用户精选,优先用)
     // - understandingByRunId: Step 2 多模态理解结果(描述/氛围/物体/动作/建议分镜),
     //   供 Step 3 plan_scenes 节点在拆分镜时把 visualIntent 落到具体素材画面内容上。
+    //   进程重启后会从 agentDatabase 热加载回来,见下面的 hotLoadUnderstandings。
     const keyframesByRunId = new Map<
         string,
         Map<
@@ -696,6 +697,53 @@ export const createLangGraphVideoAgentController = ({
         >
     >();
     const understandingByRunId = new Map<string, Map<string, DescribedImage>>();
+
+    // 热加载:从 agentDatabase 拉所有 in-flight run 的 understanding 进内存。
+    // 解决"scan_assets 完成后 / scene_approval 等待期间进程重启 →
+    // 内存里 understandingByRunId 丢了 → plan_scenes 拿不到多模态输入"
+    // 的 UX 漏洞。analyzeAsset 会同时写 DB(见下面的 upsert),保证下次启动能拉回来。
+    if (agentDatabase) {
+        try {
+            const recentRuns = agentDatabase.listAgentRuns({ limit: 50 });
+            // 只加载"未结束"的 run,已经 completed/failed 的 understanding 用不上了
+            const activeRunIds = recentRuns
+                .filter(
+                    (run) =>
+                        run.status === 'running' ||
+                        run.status === 'waiting_for_approval'
+                )
+                .map((run) => run.id);
+
+            for (const runId of activeRunIds) {
+                const records = agentDatabase.listAssetUnderstandingsByRun({
+                    runId
+                });
+                if (records.length === 0) continue;
+
+                const perAsset = new Map<string, DescribedImage>();
+                for (const record of records) {
+                    perAsset.set(record.assetId, {
+                        actions: record.actions,
+                        description: record.description,
+                        mood: record.mood,
+                        objects: record.objects,
+                        promptMatchReason: record.promptMatchReason,
+                        promptMatchScore: record.promptMatchScore,
+                        suggestedSceneType: record.suggestedSceneType
+                    });
+                }
+                understandingByRunId.set(runId, perAsset);
+            }
+        } catch (error) {
+            // eslint-disable-next-line no-console
+            console.warn(
+                `[agentDatabase] 热加载 understanding 失败,继续运行但不恢复历史理解:${
+                    error instanceof Error ? error.message : String(error)
+                }`
+            );
+        }
+    }
+
     // 当 tools 内部 emit 一个 sequence=0 的事件(说明没有 sequence 来源),
     // 我们用 lastSequences 统一分配递增 sequence,跟 graph node 事件保持单调。
     const lastSequences = new Map<string, number>();
@@ -883,6 +931,14 @@ export const createLangGraphVideoAgentController = ({
         }
 
         runner = createVideoCreationGraph({
+            // 把 agent run 的 checkpoint 落到 userData 目录,跟 agent.sqlite
+            // 平级,但单独一个文件,职责清晰:
+            //   userData/checkpoints.db  ← LangGraph 图的 state 快照
+            //   userData/agent.sqlite    ← agent run 元数据 (run status 等)
+            checkpointerDbPath: path.join(
+                app.getPath('userData'),
+                'checkpoints.db'
+            ),
             emit: emitGraphEvent,
             tools: createDesktopVideoAgentTools({
                 // 工具 emit 的 asset_scan_progress 走 graph 的 emit 通道,
@@ -1349,6 +1405,34 @@ export const createLangGraphVideoAgentController = ({
                 // 跟 emit 顺序无关,先缓存再 emit,确保 chat 流一旦推到,
                 // 后续 plan_scenes 一定能拿到(避免 race)。
                 rememberUnderstanding(input.runId, input.assetId, described);
+
+                // 持久化多模态结果:进程重启后 plan_scenes 还能从
+                // agent.sqlite 拉回来,不需要重新调 LLM(单次描述 2-3s + tokens)
+                // best-effort:sqlite 写失败不应该阻塞 UI emit
+                if (agentDatabase) {
+                    try {
+                        agentDatabase.upsertAssetUnderstanding({
+                            actions: described.actions,
+                            assetId: input.assetId,
+                            description: described.description,
+                            mood: described.mood,
+                            objects: described.objects,
+                            promptMatchReason: described.promptMatchReason,
+                            promptMatchScore: described.promptMatchScore,
+                            runId: input.runId,
+                            suggestedSceneType: described.suggestedSceneType
+                        });
+                    } catch (error) {
+                        // eslint-disable-next-line no-console
+                        console.warn(
+                            `[agentDatabase] upsertAssetUnderstanding failed for ${input.runId}/${input.assetId}: ${
+                                error instanceof Error
+                                    ? error.message
+                                    : String(error)
+                            }`
+                        );
+                    }
+                }
 
                 const completedAt = now();
                 const completedSequence =

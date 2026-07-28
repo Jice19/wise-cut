@@ -22,6 +22,7 @@ describe('agent database', () => {
                 'ai_decisions',
                 'asset_embeddings',
                 'asset_segments',
+                'asset_understandings',
                 'graph_checkpoints',
                 'projects'
             ]);

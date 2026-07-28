@@ -50,5 +50,19 @@ export const agentDatabaseSchemaStatements = [
         decision_json text not null,
         created_at text not null,
         foreign key (run_id) references agent_runs(id)
+    )`,
+    `create table if not exists asset_understandings (
+        run_id text not null,
+        asset_id text not null,
+        description text not null,
+        mood text not null,
+        objects_json text not null,
+        actions_json text not null,
+        suggested_scene_type text not null,
+        prompt_match_reason text not null,
+        prompt_match_score real not null,
+        created_at text not null,
+        primary key (run_id, asset_id),
+        foreign key (run_id) references agent_runs(id)
     )`
 ] as const;
