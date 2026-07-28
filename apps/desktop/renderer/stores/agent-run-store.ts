@@ -23,6 +23,12 @@ type AgentRunSnapshot = {
     viewModel: AgentConversationViewModel;
 };
 
+// 内存里最多保留多少个 run 的事件。超了就按 runId 插入顺序淘汰最老的。
+// 一个 run 完整跑下来 50-200+ 事件,不限制的话长时间使用会涨。
+// 终态事件已经在 run.completed 时通过 persistConversation 写到磁盘了,
+// 所以丢旧的不会丢用户数据(只是 UI 没法回看)。
+const MAX_RETAINED_RUNS = 20;
+
 const eventsByRunId = new Map<string, AgentRunConversationEvent[]>();
 const listeners = new Set<() => void>();
 let activeRunId: string | undefined;
@@ -51,7 +57,28 @@ const getEvents = (runId: string) => eventsByRunId.get(runId) ?? [];
 
 const setEvents = (runId: string, events: AgentRunConversationEvent[]) => {
     eventsByRunId.set(runId, events);
+    enforceRetainedRunsCap();
     notify();
+};
+
+// FIFO 淘汰:超过 MAX_RETAINED_RUNS 时丢最老的。
+// 终态事件已经 persist 到磁盘,丢 UI 历史不影响数据完整性。
+const enforceRetainedRunsCap = () => {
+    while (eventsByRunId.size > MAX_RETAINED_RUNS) {
+        // Map 是按插入顺序迭代的,第一个就是最老的 run
+        const oldestRunId = eventsByRunId.keys().next().value;
+        if (oldestRunId === undefined) break;
+        // 当前 active run 不淘汰(避免用户正在看的对话突然消失)
+        if (oldestRunId === activeRunId) {
+            // 跳过这个 key,从下一个开始淘汰
+            // 把最老的临时挪到队尾,下次循环再处理
+            const oldestEvents = eventsByRunId.get(oldestRunId);
+            eventsByRunId.delete(oldestRunId);
+            if (oldestEvents) eventsByRunId.set(oldestRunId, oldestEvents);
+            continue;
+        }
+        eventsByRunId.delete(oldestRunId);
+    }
 };
 
 const getNextLocalSequence = (runId: string) =>
@@ -289,7 +316,16 @@ export const analyzeAsset = (
     return window.miaomaAPI.videoAgent.analyzeAsset(input);
 };
 
-export const getAgentRunSnapshot = (runId?: string): AgentRunSnapshot => {
+// Snapshot 缓存:让 useSyncExternalStore 的 getSnapshot 返回稳定引用,
+// 避免无关 run 收到事件时,正在看其他 run 的组件也 re-render。
+// key 用 runId(没 runId 的用 __none__),value 缓存 version + 对象。
+const snapshotCache = new Map<
+    string,
+    { snapshot: AgentRunSnapshot; version: number }
+>();
+const NO_RUN_KEY = '__none__';
+
+const computeSnapshot = (runId?: string): AgentRunSnapshot => {
     const resolvedRunId = runId ?? activeRunId;
     const events = resolvedRunId ? getEvents(resolvedRunId) : [];
 
@@ -300,10 +336,27 @@ export const getAgentRunSnapshot = (runId?: string): AgentRunSnapshot => {
     };
 };
 
+const getCachedSnapshot = (runId?: string): AgentRunSnapshot => {
+    const key = runId ?? activeRunId ?? NO_RUN_KEY;
+    const cached = snapshotCache.get(key);
+
+    if (cached && cached.version === version) {
+        return cached.snapshot;
+    }
+
+    const snapshot = computeSnapshot(runId);
+    snapshotCache.set(key, { snapshot, version });
+    return snapshot;
+};
+
+export const getAgentRunSnapshot = (runId?: string): AgentRunSnapshot =>
+    getCachedSnapshot(runId);
+
 export const getLastAgentSubmitInput = () => lastSubmitInput;
 
-export const useAgentRunSnapshot = (runId?: string): AgentRunSnapshot => {
-    useSyncExternalStore(subscribe, getVersion, getVersion);
-
-    return getAgentRunSnapshot(runId);
-};
+export const useAgentRunSnapshot = (runId?: string): AgentRunSnapshot =>
+    useSyncExternalStore(
+        subscribe,
+        () => getCachedSnapshot(runId),
+        () => getCachedSnapshot(runId)
+    );

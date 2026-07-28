@@ -818,6 +818,22 @@ export const createLangGraphVideoAgentController = ({
     const getAssetUnderstanding = (runId: string, assetId: string) =>
         understandingByRunId.get(runId)?.get(assetId);
 
+    // 终态清理:run.completed / run.failed / run.cancelled 时调,
+    // 把这个 run 在内存里的所有缓存删掉,防止 IPC 控制器长时间跑下来 OOM
+    // (原本 6+ 个 Map 都没有 delete,跑 50 个 run 就涨 50 倍)
+    // activeEmitters / lastSequences 是活跃事件用的,跟历史 cache 分开:
+    // 这里只清历史 cache。activeEmitters 已经在调用方的 finally 里清。
+    const cleanupRunState = (runId: string) => {
+        runs.delete(runId);
+        understandingByRunId.delete(runId);
+        keyframesByRunId.delete(runId);
+        fileNameByRunId.delete(runId);
+        selectedFramesByRunId.delete(runId);
+        voiceRegenerationRuns.delete(runId); // 已存在的清理
+        // 注意:不要清 lastSequences / activeEmitters,它们是事件分发
+        // 上下文,emitGraphEvent / emitForRun 自己会处理
+    };
+
     const emitGraphEvent = (event: AgentRunEvent) => {
         const state = runs.get(event.runId);
 
@@ -859,6 +875,11 @@ export const createLangGraphVideoAgentController = ({
                     }`
                 );
             }
+
+            // 终态:清掉这个 run 的所有内存 Map,防止 OOM
+            // (原来是 set 无 delete,跑 50 个 run 就 50 倍内存)
+            // 顺序不能反:activeEmitters 还在用,lastSequences 也要最后清
+            cleanupRunState(event.runId);
         }
 
         // graph node 已经填了 sequence 的事件原样用;否则用 lastSequences
@@ -996,6 +1017,9 @@ export const createLangGraphVideoAgentController = ({
                     }`
                 );
             }
+
+            // 终态:同 emitGraphEvent 那边,清掉这个 run 的内存 cache
+            cleanupRunState(state.runId);
         }
     };
 
