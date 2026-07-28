@@ -34,6 +34,16 @@ if (started) {
 
 registerMediaProtocolSchemePrivileges();
 
+// 模块级 ref:agentDatabase 句柄在 app.whenReady 里创建,
+// before-quit 钩子里需要能访问到它来关掉。闭包 + 提早声明避免循环依赖。
+let agentDatabaseHandle: ReturnType<typeof createAgentDatabase> | undefined;
+const closeAgentDatabase = () => {
+    if (agentDatabaseHandle) {
+        agentDatabaseHandle.close();
+        agentDatabaseHandle = undefined;
+    }
+};
+
 const createWindow = () => {
     const mainWindow = new BrowserWindow(
         createMainWindowOptions({
@@ -138,6 +148,7 @@ app.whenReady().then(() => {
         const agentDatabase = createAgentDatabase({
             filename: path.join(app.getPath('userData'), 'agent.sqlite')
         });
+        agentDatabaseHandle = agentDatabase; // 模块级 ref,before-quit 用来关
         agentDatabaseHelpers = createAgentDatabaseHelpers({
             database: agentDatabase.database
         });
@@ -197,5 +208,21 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') {
         app.quit();
+    }
+});
+
+// best-effort 关闭本地 sqlite 连接,避免开发期热重载 / 升级期间文件被锁。
+// `node:sqlite` 是同步句柄,OS 退出时会回收,但显式 close 是个好习惯。
+// 挂在 before-quit 而不是 will-quit,这样还能给异步操作一个完成窗口。
+app.on('before-quit', () => {
+    try {
+        closeAgentDatabase();
+    } catch (error) {
+        // eslint-disable-next-line no-console
+        console.warn(
+            `[agentDatabase] before-quit 关闭失败(进程退出时会自动回收):${
+                error instanceof Error ? error.message : String(error)
+            }`
+        );
     }
 });

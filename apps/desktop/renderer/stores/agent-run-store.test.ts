@@ -1,7 +1,9 @@
 /* */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { getAgentRunSnapshot, useAgentRunSnapshot } from './agent-run-store';
+import type { DesktopAgentRunEvent } from '../../shared/video-agent';
+
+import { getAgentRunSnapshot } from './agent-run-store';
 
 const installMockWindow = () => {
     const api = {
@@ -12,28 +14,31 @@ const installMockWindow = () => {
                 // 返回 unsubscribe
             },
             start: async () => ({
-                success: false,
-                error: { code: 'X', message: 'x' }
+                success: false as const,
+                error: { code: 'X' as const, message: 'x' }
             }),
             approve: async () => ({
-                success: false,
-                error: { code: 'X', message: 'x' }
+                success: false as const,
+                error: { code: 'X' as const, message: 'x' }
             }),
             cancel: async () => ({
-                success: false,
-                error: { code: 'X', message: 'x' }
+                success: false as const,
+                error: { code: 'X' as const, message: 'x' }
             }),
             reportSelectedFrames: async () => ({
-                success: false,
-                error: { code: 'X', message: 'x' }
+                success: false as const,
+                error: { code: 'X' as const, message: 'x' }
             }),
             analyzeAsset: async () => ({
-                success: false,
-                error: { code: 'X', message: 'x' }
+                success: false as const,
+                error: { code: 'X' as const, message: 'x' }
             })
         },
         videoProject: {
-            list: async () => ({ success: true, data: [] })
+            list: async () => ({
+                success: true as const,
+                data: [] as Array<{ filePath: string; project: unknown }>
+            })
         }
     };
 
@@ -42,8 +47,14 @@ const installMockWindow = () => {
     return { api };
 };
 
-const makeEvent = (runId: string, sequence: number, type: string) => ({
+// type: 完整 discriminated union 的字面量(不能是 string)
+const makeEvent = (
+    runId: string,
+    sequence: number,
+    type: 'node.started' | 'node.completed'
+): DesktopAgentRunEvent => ({
     createdAt: new Date().toISOString(),
+    nodeName: 'scan_assets',
     runId,
     sequence,
     type
