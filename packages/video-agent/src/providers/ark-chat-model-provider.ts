@@ -4,6 +4,7 @@ import { z, type ZodIssue, type ZodType } from 'zod';
 import { ChatOpenAI } from '@langchain/openai';
 
 import type { AgentEnv } from '../config/load-agent-env';
+import { withRetry } from '../utils/with-retry';
 import {
     type AssetMatchCandidate,
     type AssetMatchRanking,
@@ -353,48 +354,61 @@ export class ArkChatModelProvider implements ModelProvider {
         });
         const endpoint = `${this.baseURL.replace(/\/$/, '')}/chat/completions`;
         const fetchFn = this.fetchImpl ?? globalThis.fetch;
-        const response = await fetchFn(endpoint, {
-            body: JSON.stringify({
-                messages: [
-                    {
-                        content: [
-                            { text: prompt, type: 'text' },
-                            ...frames.map((frame) => ({
-                                image_url: { url: frame.dataUrl },
-                                type: 'image_url'
-                            }))
-                        ],
-                        role: 'user'
-                    }
-                ],
-                model: this.modelName,
-                response_format: { type: 'json_object' },
-                stream: false,
-                temperature: 0.4
-            }),
-            headers: {
-                Authorization: `Bearer ${this.apiKey}`,
-                'Content-Type': 'application/json'
-            },
-            method: 'POST'
+
+        // 整个 fetch + 检查 + 解析 都包进 withRetry:
+        // - HTTP 5xx / 429 → 重试(用 isRetryableError 判定)
+        // - 网络错误(ECONNRESET 等) → 重试
+        // - 返回空 / JSON parse 失败 → 不重试(语义错误,重试没用)
+        // - Zod 校验失败 → 不重试
+        const content = await withRetry(async () => {
+            const response = await fetchFn(endpoint, {
+                body: JSON.stringify({
+                    messages: [
+                        {
+                            content: [
+                                { text: prompt, type: 'text' },
+                                ...frames.map((frame) => ({
+                                    image_url: { url: frame.dataUrl },
+                                    type: 'image_url'
+                                }))
+                            ],
+                            role: 'user'
+                        }
+                    ],
+                    model: this.modelName,
+                    response_format: { type: 'json_object' },
+                    stream: false,
+                    temperature: 0.4
+                }),
+                headers: {
+                    Authorization: `Bearer ${this.apiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                method: 'POST'
+            });
+
+            if (!response.ok) {
+                const errorBody = await response.text();
+
+                throw new Error(
+                    `多模态理解失败 HTTP ${response.status}: ${errorBody.slice(0, 500)}`
+                );
+            }
+
+            const json = (await response.json()) as {
+                choices?: { message?: { content?: string } }[];
+            };
+            const responseContent = json.choices?.[0]?.message?.content;
+
+            if (
+                typeof responseContent !== 'string' ||
+                responseContent.length === 0
+            ) {
+                throw new Error('多模态理解返回内容为空');
+            }
+
+            return responseContent;
         });
-
-        if (!response.ok) {
-            const errorBody = await response.text();
-
-            throw new Error(
-                `多模态理解失败 HTTP ${response.status}: ${errorBody.slice(0, 500)}`
-            );
-        }
-
-        const json = (await response.json()) as {
-            choices?: { message?: { content?: string } }[];
-        };
-        const content = json.choices?.[0]?.message?.content;
-
-        if (typeof content !== 'string' || content.length === 0) {
-            throw new Error('多模态理解返回内容为空');
-        }
 
         let raw: unknown;
 
@@ -527,9 +541,26 @@ export class ArkChatModelProvider implements ModelProvider {
         let raw: unknown;
 
         try {
-            raw = await this.model
-                .withStructuredOutput(schema, this.structuredOutput)
-                .invoke(prompt);
+            // 套 withRetry:网络抖动 / 5xx / 429 时重试,4xx / zod 失败不重试
+            // (默认 maxRetries=2,基础退避 500ms,总共最多 3 次调用)
+            raw = await withRetry(
+                () =>
+                    this.model
+                        .withStructuredOutput(schema, this.structuredOutput)
+                        .invoke(prompt),
+                {
+                    onRetry: ({ attempt, delayMs, error }) => {
+                        // eslint-disable-next-line no-console
+                        console.warn(
+                            `[ArkChatModelProvider] ${task} 失败,${delayMs}ms 后第 ${attempt} 次重试:${
+                                error instanceof Error
+                                    ? error.message
+                                    : String(error)
+                            }`
+                        );
+                    }
+                }
+            );
         } catch (error) {
             normalizeStructuredOutputError({ error, task });
         }
