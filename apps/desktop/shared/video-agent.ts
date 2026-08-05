@@ -15,7 +15,16 @@ export type VideoAgentStartInput = {
     prompt: string;
     selectedVoice: string;
     selectedVoiceType?: string;
-    sourceAssetDirectory: string;
+    /**
+     * 直接选的视频文件路径列表（多选），优先于 sourceAssetDirectory。
+     * 由文件选择器或拖拽产生，不需要扫描目录。
+     */
+    sourceFilePaths?: string[];
+    /**
+     * 视频素材目录路径（向后兼容）。
+     * 当 sourceFilePaths 未提供时使用。
+     */
+    sourceAssetDirectory?: string;
     voiceSpeed?: number;
     voiceVolume?: number;
 };
@@ -103,7 +112,8 @@ export type DesktopAgentRunEvent =
               prompt: string;
               selectedVoice: string;
               selectedVoiceType?: string;
-              sourceAssetDirectory: string;
+              sourceAssetDirectory?: string;
+              sourceFilePaths?: string[];
               voiceSpeed?: number;
               voiceVolume?: number;
           };

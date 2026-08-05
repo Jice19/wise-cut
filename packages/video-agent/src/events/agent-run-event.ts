@@ -9,7 +9,8 @@ export type AgentRunEvent =
     | (AgentRunEventBase & {
           input: {
               prompt: string;
-              sourceAssetDirectory: string;
+              sourceAssetDirectory?: string;
+              sourceFilePaths?: string[];
           };
           type: 'run.started';
       })

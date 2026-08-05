@@ -30,7 +30,18 @@ import {
 
 import type { VideoProjectStore } from './video-project-store';
 
-const supportedVideoExtensions = new Set(['.m4v', '.mov', '.mp4', '.webm']);
+const supportedVideoExtensions = new Set([
+    '.3gp',
+    '.avi',
+    '.flv',
+    '.m4v',
+    '.mkv',
+    '.mov',
+    '.mp4',
+    '.ts',
+    '.webm',
+    '.wmv'
+]);
 
 type FileSystemEntry = {
     isFile: () => boolean;
@@ -409,12 +420,16 @@ export const createDesktopVideoAgentTools = ({
                         fps: asset?.fps ?? 30,
                         height: asset?.height ?? 1080,
                         id: assetId,
+                        // assetPaths 在 scanAssets 里 set 了每个 assetId → fullPath,
+                        // 这里 get 必然命中;fallback 保留作为防御。
                         path:
                             assetPaths.get(assetId) ??
-                            path.join(
-                                input.sourceAssetDirectory,
-                                `${assetId}.mp4`
-                            ),
+                            (input.sourceAssetDirectory
+                                ? path.join(
+                                      input.sourceAssetDirectory,
+                                      `${assetId}.mp4`
+                                  )
+                                : `${assetId}.mp4`),
                         thumbnailIds: [
                             `thumbnail_asset_${padIndex(index + 1)}`
                         ],
@@ -774,37 +789,79 @@ export const createDesktopVideoAgentTools = ({
             };
         },
         scanAssets: async ({ input }) => {
-            let entries: FileSystemEntry[];
+            // ── 两种素材来源 ──
+            // 1. sourceFilePaths: 文件选择器/拖拽直接传入的文件路径列表
+            // 2. sourceAssetDirectory: 目录路径,需要 readdir 扫描
+            // 两者互斥(UI 强制):有 files 用 files,否则用 directory
+            let videoFileEntries: {
+                fullPath: string;
+                name: string;
+            }[];
 
-            try {
-                entries = await readdir(input.sourceAssetDirectory, {
-                    withFileTypes: true
-                });
-            } catch (error) {
-                const message =
-                    error instanceof Error ? error.message : String(error);
+            if (input.sourceFilePaths?.length) {
+                // 模式 1:直接用传入的文件路径,过滤非视频扩展名
+                videoFileEntries = input.sourceFilePaths
+                    .filter((p) =>
+                        supportedVideoExtensions.has(
+                            path.extname(p).toLowerCase()
+                        )
+                    )
+                    .map((p) => ({
+                        fullPath: p,
+                        name: path.basename(p)
+                    }))
+                    .sort((a, b) => a.name.localeCompare(b.name));
+            } else if (input.sourceAssetDirectory) {
+                // 模式 2:扫描目录
+                let entries: FileSystemEntry[];
 
-                throw new Error(`无法读取本地素材目录：${message}`);
+                try {
+                    entries = await readdir(input.sourceAssetDirectory, {
+                        withFileTypes: true
+                    });
+                } catch (error) {
+                    const message =
+                        error instanceof Error ? error.message : String(error);
+
+                    throw new Error(`无法读取本地素材目录：${message}`);
+                }
+
+                videoFileEntries = entries
+                    .filter((entry) => entry.isFile())
+                    .filter((entry) =>
+                        supportedVideoExtensions.has(
+                            path.extname(entry.name).toLowerCase()
+                        )
+                    )
+                    .map((entry) => ({
+                        fullPath: path.join(
+                            input.sourceAssetDirectory!,
+                            entry.name
+                        ),
+                        name: entry.name
+                    }))
+                    .sort((a, b) => a.name.localeCompare(b.name));
+            } else {
+                throw new Error(
+                    '未提供视频素材(sourceFilePaths 或 sourceAssetDirectory)'
+                );
             }
 
-            const videoEntries = entries
-                .filter((entry) => entry.isFile())
-                .filter((entry) =>
-                    supportedVideoExtensions.has(
-                        path.extname(entry.name).toLowerCase()
-                    )
-                )
-                .sort((first, second) => first.name.localeCompare(second.name));
-
-            if (videoEntries.length === 0) {
-                throw new Error('本地素材目录中没有找到可用视频文件');
+            if (videoFileEntries.length === 0) {
+                throw new Error('没有找到可用视频文件');
             }
 
             const safeRunId = createSafeId(input.runId);
-            const slicedEntries = videoEntries.slice(0, 24);
+            const slicedEntries = videoFileEntries.slice(0, 24);
+            // keyframe 根目录:优先用 voiceOutputDirectory 父目录,
+            // 否则用第一个素材所在目录,保持稳定
+            const firstAssetDir = input.sourceFilePaths?.[0]
+                ? path.dirname(input.sourceFilePaths[0])
+                : (input.sourceAssetDirectory ??
+                  path.dirname(slicedEntries[0].fullPath));
             const keyframeRoot = path.join(
                 voiceOutputDirectory ??
-                    path.join(input.sourceAssetDirectory, '.miaoma-keyframes'),
+                    path.join(firstAssetDir, '.miaoma-keyframes'),
                 safeRunId,
                 'keyframes'
             );
@@ -824,10 +881,7 @@ export const createDesktopVideoAgentTools = ({
 
             const probed = await Promise.all(
                 slicedEntries.map(async (entry, index) => {
-                    const fullPath = path.join(
-                        input.sourceAssetDirectory,
-                        entry.name
-                    );
+                    const fullPath = entry.fullPath;
                     const assetId = `video_asset_${safeRunId}_${padIndex(
                         index + 1
                     )}`;
@@ -946,10 +1000,7 @@ export const createDesktopVideoAgentTools = ({
             );
 
             return probed.map(({ assetId, entry, error, index, metadata }) => {
-                assetPaths.set(
-                    assetId,
-                    path.join(input.sourceAssetDirectory, entry.name)
-                );
+                assetPaths.set(assetId, entry.fullPath);
 
                 if (!metadata) {
                     // Fall back to a placeholder so the rest of the
@@ -1007,10 +1058,18 @@ export const createDesktopVideoAgentTools = ({
 
             const voiceResults: VoiceSynthesisResult[] = [];
 
+            // voice 输出位置:优先 voiceOutputDirectory,否则用第一个素材
+            // 所在目录(文件模式)或目录本身(目录模式)
+            const voiceOutputBase =
+                voiceOutputDirectory ??
+                (input.sourceFilePaths?.[0]
+                    ? path.dirname(input.sourceFilePaths[0])
+                    : (input.sourceAssetDirectory ?? process.cwd()));
+
             for (const scene of scenes) {
                 for (const [lineIndex, text] of scene.subtitleLines.entries()) {
                     const outputPath = path.join(
-                        voiceOutputDirectory ?? input.sourceAssetDirectory,
+                        voiceOutputBase,
                         `${createSafeId(input.runId)}-${createSafeId(
                             scene.id
                         )}-${padIndex(lineIndex + 1)}.mp3`

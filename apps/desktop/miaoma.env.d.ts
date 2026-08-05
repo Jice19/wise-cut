@@ -16,6 +16,7 @@ import type {
     CustomVoiceOperationResult,
     CustomVoiceProviderStatus
 } from './shared/custom-voice';
+import type { FileSelectResult } from './shared/file-select-channels';
 import type {
     DesktopAgentRunEvent,
     VideoAgentAnalyzeAssetInput,
@@ -55,6 +56,10 @@ declare global {
                 list: () => Promise<
                     CustomVoiceOperationResult<CustomVoiceItem[]>
                 >;
+            };
+            fileSelect: {
+                selectVideoDirectory: () => Promise<FileSelectResult>;
+                selectVideoFiles: () => Promise<FileSelectResult>;
             };
             ping: () => Promise<{ success: boolean }>;
             videoExport: {

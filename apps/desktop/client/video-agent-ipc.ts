@@ -53,6 +53,7 @@ import type { VideoProjectStore } from './video-project-store';
 export { videoAgentIpcChannels };
 
 type VideoAgentIpcSender = {
+    isDestroyed?: () => boolean;
     send: (channel: string, event: DesktopAgentRunEvent) => void;
 };
 
@@ -172,7 +173,10 @@ const normalizeStartInput = (input: VideoAgentStartInput) => ({
     prompt: input.prompt.trim(),
     selectedVoice: input.selectedVoice.trim(),
     selectedVoiceType: input.selectedVoiceType?.trim(),
-    sourceAssetDirectory: input.sourceAssetDirectory.trim(),
+    sourceFilePaths: input.sourceFilePaths
+        ?.map((p) => p.trim())
+        .filter(Boolean),
+    sourceAssetDirectory: input.sourceAssetDirectory?.trim(),
     ...normalizeVideoAgentVoiceSettings(input)
 });
 
@@ -528,10 +532,10 @@ export const createDemoVideoAgentController = ({
         start: async (rawInput, emit) => {
             const input = normalizeStartInput(rawInput);
 
-            if (!input.sourceAssetDirectory) {
+            if (!input.sourceAssetDirectory && !input.sourceFilePaths?.length) {
                 return failure({
                     code: 'VALIDATION_FAILED',
-                    message: '请选择本地素材目录'
+                    message: '请选择视频素材文件或目录'
                 });
             }
 
@@ -557,6 +561,7 @@ export const createDemoVideoAgentController = ({
                         selectedVoice: input.selectedVoice,
                         selectedVoiceType: input.selectedVoiceType,
                         sourceAssetDirectory: input.sourceAssetDirectory,
+                        sourceFilePaths: input.sourceFilePaths,
                         voiceSpeed: input.voiceSpeed,
                         voiceVolume: input.voiceVolume
                     },
@@ -1244,10 +1249,10 @@ export const createLangGraphVideoAgentController = ({
         start: async (rawInput, emit) => {
             const input = normalizeStartInput(rawInput);
 
-            if (!input.sourceAssetDirectory) {
+            if (!input.sourceAssetDirectory && !input.sourceFilePaths?.length) {
                 return failure({
                     code: 'VALIDATION_FAILED',
-                    message: '请选择本地素材目录'
+                    message: '请选择视频素材文件或目录'
                 });
             }
 
@@ -1290,9 +1295,14 @@ export const createLangGraphVideoAgentController = ({
                     await getRunner().start({
                         prompt: input.prompt,
                         runId,
-                        sourceAssetDirectory: input.sourceAssetDirectory
+                        sourceAssetDirectory: input.sourceAssetDirectory,
+                        sourceFilePaths: input.sourceFilePaths
                     });
                 } catch (error) {
+                    // 同步打到 main 进程 terminal,即使 emit 后被吞掉也至少
+                    // 留个 trace,排错不用瞎猜
+                    // eslint-disable-next-line no-console
+                    console.error(`[agent] run ${runId} failed:`, error);
                     emitForRun(
                         state,
                         {
@@ -1510,11 +1520,23 @@ export const registerVideoAgentIpc = ({
     controller: VideoAgentIpcController;
     ipcMain: VideoAgentIpcMain;
 }) => {
-    const emitToRenderer =
-        (event: VideoAgentIpcEvent): VideoAgentEventEmitter =>
-        (agentEvent) => {
-            event.sender.send(videoAgentIpcChannels.event, agentEvent);
+    // 捕获 sender(WebContents)而不是整个 event——Electron 的
+    // IpcMainInvokeEvent 只在 handler 同步段有效,handler return 后
+    // event 会被 GC。原版闭包里 `event.sender.send(...)` 在异步
+    // emit(runInBackground fire-and-forget)时会 silently fail,
+    // 表现就是 renderer 收不到任何 node / 终态事件,UI 卡死。
+    // sender(WebContents)跟着窗口生命周期走,稳。
+    const emitToRenderer = (
+        event: VideoAgentIpcEvent
+    ): VideoAgentEventEmitter => {
+        const sender = event.sender;
+
+        return (agentEvent) => {
+            if (!sender.isDestroyed()) {
+                sender.send(videoAgentIpcChannels.event, agentEvent);
+            }
         };
+    };
 
     ipcMain.handle(videoAgentIpcChannels.start, (event, input) =>
         controller.start(input as VideoAgentStartInput, emitToRenderer(event))

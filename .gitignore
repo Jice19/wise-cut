@@ -55,6 +55,9 @@ coverage
 .vite-node/
 out/
 
+# IDE caches
+.codebuddy/
+
 /temp
 **/*/docker/postgresql_data
 **/*/generated

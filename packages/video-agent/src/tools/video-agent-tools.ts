@@ -57,7 +57,14 @@ export type VideoCreationInput = {
     prompt: string;
     runId: string;
     selectedVoiceType?: string;
-    sourceAssetDirectory: string;
+    /**
+     * 直接选的视频文件路径列表（多选），优先于 sourceAssetDirectory。
+     */
+    sourceFilePaths?: string[];
+    /**
+     * 视频素材目录路径。sourceFilePaths 未提供时使用。
+     */
+    sourceAssetDirectory?: string;
 };
 
 export type ProjectValidationResult =

@@ -9,6 +9,10 @@ import {
 } from '../shared/api-config-channels';
 import type { CustomVoiceImportInput } from '../shared/custom-voice';
 import { customVoiceIpcChannels } from '../shared/custom-voice-channels';
+import {
+    fileSelectIpcChannels,
+    type FileSelectResult
+} from '../shared/file-select-channels';
 import type {
     DesktopAgentRunEvent,
     VideoAgentAnalyzeAssetInput,
@@ -29,6 +33,12 @@ import { videoExportIpcChannels } from '../shared/video-export-channels';
 import { videoProjectIpcChannels } from '../shared/video-project-channels';
 
 contextBridge.exposeInMainWorld('miaomaAPI', {
+    fileSelect: {
+        selectVideoDirectory: async (): Promise<FileSelectResult> =>
+            ipcRenderer.invoke(fileSelectIpcChannels.selectVideoDirectory),
+        selectVideoFiles: async (): Promise<FileSelectResult> =>
+            ipcRenderer.invoke(fileSelectIpcChannels.selectVideoFiles)
+    },
     apiConfig: {
         clear: async () => ipcRenderer.invoke(apiConfigIpcChannels.clear),
         getStatus: async (): Promise<ApiConfigStatus> =>

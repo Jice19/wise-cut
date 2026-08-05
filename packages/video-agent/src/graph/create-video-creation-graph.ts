@@ -256,7 +256,8 @@ export const createVideoCreationGraph = ({
             getEmitter(input.runId).emit({
                 input: {
                     prompt: input.prompt,
-                    sourceAssetDirectory: input.sourceAssetDirectory
+                    sourceAssetDirectory: input.sourceAssetDirectory,
+                    sourceFilePaths: input.sourceFilePaths
                 },
                 type: 'run.started'
             });

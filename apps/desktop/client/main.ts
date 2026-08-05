@@ -9,6 +9,7 @@ import { createApiConfigStore } from './api-config-store';
 import { createAgentDatabaseHelpers } from './agent-database-helpers';
 import { registerCustomVoiceIpc } from './custom-voice-ipc';
 import { createCustomVoiceLibrary } from './custom-voice-library';
+import { registerFileSelectIpc } from './file-select-ipc';
 import {
     registerMediaProtocol,
     registerMediaProtocolSchemePrivileges
@@ -170,6 +171,7 @@ app.whenReady().then(() => {
         ipcMain,
         library: customVoiceLibrary
     });
+    registerFileSelectIpc();
     registerVideoProjectIpc({ ipcMain, store: videoProjectStore });
     registerVideoExportIpc({
         createRenderer: (emitProgress) =>
