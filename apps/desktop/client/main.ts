@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, safeStorage } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from 'electron';
 import started from 'electron-squirrel-startup';
 import path from 'node:path';
 
@@ -6,6 +6,7 @@ import { createAgentDatabase } from '@wise-cut/video-agent';
 
 import { registerApiConfigIpc } from './api-config-ipc';
 import { createApiConfigStore } from './api-config-store';
+import { registerAppUpdaterIpc } from './app-updater-ipc';
 import { createAgentDatabaseHelpers } from './agent-database-helpers';
 import { registerCustomVoiceIpc } from './custom-voice-ipc';
 import { createCustomVoiceLibrary } from './custom-voice-library';
@@ -196,6 +197,17 @@ app.whenReady().then(() => {
         }),
         ipcMain
     });
+
+    // 检查更新:通过 GitHub Releases API 检测新版本,用户点击后
+    // 打开浏览器到 Releases 页面下载。不自动下载/安装,保持简单。
+    registerAppUpdaterIpc({
+        currentVersion: app.getVersion(),
+        ipcMain,
+        repoOwner: 'Jice19',
+        repoName: 'wise-cut',
+        shell
+    });
+
     createWindow();
 
     app.on('activate', () => {

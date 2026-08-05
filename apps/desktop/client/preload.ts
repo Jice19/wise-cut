@@ -7,6 +7,10 @@ import {
     type ApiConfigSetInput,
     type ApiConfigStatus
 } from '../shared/api-config-channels';
+import {
+    appUpdaterIpcChannels,
+    type AppUpdateCheckResult
+} from '../shared/app-updater-channels';
 import type { CustomVoiceImportInput } from '../shared/custom-voice';
 import { customVoiceIpcChannels } from '../shared/custom-voice-channels';
 import type {
@@ -29,6 +33,12 @@ import { videoExportIpcChannels } from '../shared/video-export-channels';
 import { videoProjectIpcChannels } from '../shared/video-project-channels';
 
 contextBridge.exposeInMainWorld('miaomaAPI', {
+    appUpdater: {
+        checkForUpdate: async (): Promise<AppUpdateCheckResult> =>
+            ipcRenderer.invoke(appUpdaterIpcChannels.checkForUpdate),
+        openReleasePage: async (url: string) =>
+            ipcRenderer.invoke(appUpdaterIpcChannels.openReleasePage, url)
+    },
     apiConfig: {
         clear: async () => ipcRenderer.invoke(apiConfigIpcChannels.clear),
         getStatus: async (): Promise<ApiConfigStatus> =>

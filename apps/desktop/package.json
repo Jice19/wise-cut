@@ -1,7 +1,7 @@
 {
     "name": "@wise-cut/desktop",
     "private": true,
-    "productName": "miaoma-magicut",
+    "productName": "WiseCut 智剪",
     "version": "1.0.0",
     "description": "AI智能剪辑平台桌面端",
     "main": ".vite/build/main.js",

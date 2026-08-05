@@ -6,7 +6,7 @@
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![LangGraph](https://img.shields.io/badge/LangGraph-1.4-FF6F00?logo=langchain&logoColor=white)](https://langchain-ai.github.io/langgraph/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![License](https://img.shields.io/badge/license-Private-lightgrey)]()
+[![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22%20%3C23-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 
 ---
@@ -112,47 +112,52 @@ flowchart LR
 
 ---
 
-## 🚀 快速开始
+## 🚀 安装使用
 
-### 1. 环境要求
+### 方式一：直接下载（推荐）
 
-- **Node.js** `>=22 <23`(用 volta 锁住 22.11.0)
+前往 [GitHub Releases](https://github.com/Jice19/wise-cut/releases) 下载对应平台的安装包：
+
+| 平台    | 文件                    | 说明                    |
+| ------- | ----------------------- | ----------------------- |
+| macOS   | `wise-cut-darwin-*.zip` | 解压后拖入 Applications |
+| Windows | `wise-cut-*.exe`        | 双击安装                |
+
+> **macOS 首次打开提示"已损坏"？** 执行 `xattr -cr /Applications/AI智能剪辑平台.app`
+
+### 方式二：从源码构建
+
+<details>
+<summary>点击展开</summary>
+
+#### 环境要求
+
+- **Node.js** `>=22 <23`
 - **pnpm** `>=10.29.2`
-- **macOS** 或 **Windows**(开发态跨平台)
-- 真实运行的 **ffmpeg + ffprobe**(本仓库 `apps/desktop/bin/darwin/` 已带 macOS 二进制,Windows 自备或下载)
+- **macOS** 或 **Windows**
 
-### 2. 克隆 & 安装
+#### 步骤
 
 ```bash
 git clone https://github.com/Jice19/wise-cut.git
 cd wise-cut
 pnpm install
-```
-
-### 3. 启动开发模式
-
-```bash
 pnpm run dev:desktop
 ```
 
-Electron 窗口起来,首次启动会弹出 **API Key onboarding 面板** — 在 [火山方舟控制台](https://www.volcengine.com/product/ark) 申请 Key(模型选 `doubao-seed-2-0-pro-260215`,支持多模态),粘进去,Key 会被 `safeStorage` 加密后写到 `userData/`,**不需要** `.env`。
+Windows 用户需要自行下载 [FFmpeg](https://ffmpeg.org/download.html) 并将 `ffmpeg.exe` / `ffprobe.exe` 放到 `apps/desktop/bin/win32/` 目录。
 
-> 如果 onboarding 关掉后想改 Key,删除 `userData/api-config.enc` 重启即可。
+</details>
 
-### 4. 跑测试 + 类型检查
+### 首次使用：配置 API Key
 
-```bash
-# 全量测试
-pnpm test
+启动后弹出 **API Key 配置面板**，需要填入 [火山方舟](https://www.volcengine.com/product/ark) 的 API Key：
 
-# 跑 TSC(应该 0 个错)
-pnpm exec tsc --noEmit -p apps/desktop/tsconfig.json
-pnpm exec tsc --noEmit -p packages/video-agent/tsconfig.json
+1. 注册火山方舟账号 → 开通 `doubao-seed-2-0-pro-260215` 模型（支持多模态）
+2. 创建 API Key → 粘贴到配置面板
+3. Key 会被 `safeStorage` 加密存储到本地，**不需要** `.env` 文件
 
-# 跑指定模块的测试
-pnpm exec vitest run packages/video-agent/tests/with-retry.test.ts
-pnpm exec vitest run apps/desktop/tests/agent-run-cleanup.test.ts
-```
+> 想修改 Key？首页底部有"API Key 配置"入口，点击修改即可。
 
 ---
 
@@ -191,6 +196,24 @@ wise-cut/
 ---
 
 ## 🛠️ 开发指南
+
+<details>
+<summary>点击展开</summary>
+
+### 跑测试 + 类型检查
+
+```bash
+# 全量测试
+pnpm test
+
+# 跑 TSC(应该 0 个错)
+pnpm exec tsc --noEmit -p apps/desktop/tsconfig.json
+pnpm exec tsc --noEmit -p packages/video-agent/tsconfig.json
+
+# 跑指定模块的测试
+pnpm exec vitest run packages/video-agent/tests/with-retry.test.ts
+pnpm exec vitest run apps/desktop/tests/agent-run-cleanup.test.ts
+```
 
 ### Commit 规范
 
@@ -260,26 +283,7 @@ userData/
 └── agent-runs/           # 调试用事件 dump
 ```
 
----
-
-## 📦 打包发布
-
-```bash
-# macOS .dmg
-pnpm run package:mac
-pnpm run make:mac
-
-# Windows .exe (Squirrel)
-pnpm run package:win
-pnpm run make:win
-
-# 同时打两个
-pnpm run make
-```
-
-产物在 `apps/desktop/out/`。
-
-> **ffmpeg 体积**:`apps/desktop/bin/darwin/ffmpeg` 77MB 跟仓库走(没拆 extraResources,GitHub 100MB 限额内)。后续会改 electron-builder 抽到 `extraResources` 瘦身仓库。
+</details>
 
 ---
 
@@ -328,7 +332,7 @@ PR 之前请:
 
 ## 📄 许可
 
-Private & Confidential.
+[MIT](./LICENSE) — 自由使用、修改、分发。
 
 ---
 

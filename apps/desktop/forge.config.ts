@@ -11,10 +11,20 @@ import type { ForgeConfig } from '@electron-forge/shared-types';
 const config: ForgeConfig = {
     packagerConfig: {
         extraResource: ['bin', 'renderer/assets/song'],
-        name: 'AI智能剪辑平台',
-        prune: false
+        // packagerConfig.name 是打包后的可执行文件名/目录名,
+        // 用 ASCII 避免跨平台路径问题。productName 在 package.json 里
+        // 控制显示名称。
+        name: 'WiseCut',
+        // 打包后忽略 devDependencies,减小产物体积。
+        // 原生模块(better-sqlite3)由 electron-rebuild 处理。
+        prune: true,
+        // macOS 图标
+        icon: 'renderer/assets/icon'
     },
-    rebuildConfig: {},
+    rebuildConfig: {
+        // electron-forge 会自动检测 better-sqlite3 等原生模块
+        // 并用 electron-rebuild 重新编译
+    },
     makers: [
         new MakerSquirrel({}),
         new MakerZIP({}, ['darwin', 'win32']),
