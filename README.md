@@ -7,7 +7,7 @@
 [![LangGraph](https://img.shields.io/badge/LangGraph-1.4-FF6F00?logo=langchain&logoColor=white)](https://langchain-ai.github.io/langgraph/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![License](https://img.shields.io/badge/license-Private-lightgrey)]()
-[![Node](https://img.shields.io/badge/node-%3E%3D22%20%3C23-339933?logo=node.js&logoColor=white)](https://nodejs.org)
+[![Node](<https://img.shields.io/badge/node-%3E%3D22%20%3C23-339933?logo=node.js&logoColor=white>)](https://nodejs.org)
 
 ---
 
@@ -196,8 +196,8 @@ wise-cut/
 
 **强制 conventional commits**,scope 限定:
 
-| Scope       | 用途                             |
-| ----------- | -------------------------------- |
+| Scope         | 用途                             |
+| ------------- | -------------------------------- |
 | `agent`     | LangGraph / 多模态 / provider    |
 | `desktop`   | 主进程 / 共享类型                |
 | `editor`    | 编辑器 / PreviewPanel / Timeline |
@@ -246,8 +246,8 @@ pnpm exec vitest run --project video-agent
 
 Electron `app.getPath('userData')` 下,会随平台而变:
 
-| 平台    | 路径                                      |
-| ------- | ----------------------------------------- |
+| 平台    | 路径                                        |
+| ------- | ------------------------------------------- |
 | macOS   | `~/Library/Application Support/wise-cut/` |
 | Windows | `%APPDATA%\wise-cut\`                     |
 
@@ -287,15 +287,15 @@ pnpm run make
 
 ### ✅ 最近完成
 
-- [x] **SqliteSaver 替代 MemorySaver**(commit `f8a8512`):`checkpoints.db` 落盘,App 重启能 resume
-- [x] **多模态理解结果持久化**:`asset_understandings` 表,`ON CONFLICT (run_id, asset_id) DO UPDATE`,启动时 hot-load
-- [x] **LLM 调用指数退避重试**:`withRetry` 工具,5xx/429/网络错误自动重试,业务错误不重试(`6d64832`)
-- [x] **Run 终态内存清理** + **per-runId 稳定 snapshot** + **FIFO 容量上限**(`a19ddd1`)
-- [x] **`before-quit` 关闭 sqlite 连接**(`d84b41f`):不依赖 GC
-- [x] **API Key 走 `safeStorage` 加密** + 首次启动 onboarding 面板(`0adeac0`),弃用 `.env`
-- [x] **用户偏好(音乐/字幕)持久化到 localStorage**(`8f22d0b`)
-- [x] **pre-commit hook 跑 prettier**(`705bf96`,不引入 lint-staged)
-- [x] **TSC 0 错**(`3ce131a`)
+- [X] **SqliteSaver 替代 MemorySaver**(commit `f8a8512`):`checkpoints.db` 落盘,App 重启能 resume
+- [X] **多模态理解结果持久化**:`asset_understandings` 表,`ON CONFLICT (run_id, asset_id) DO UPDATE`,启动时 hot-load
+- [X] **LLM 调用指数退避重试**:`withRetry` 工具,5xx/429/网络错误自动重试,业务错误不重试(`6d64832`)
+- [X] **Run 终态内存清理** + **per-runId 稳定 snapshot** + **FIFO 容量上限**(`a19ddd1`)
+- [X] **`before-quit` 关闭 sqlite 连接**(`d84b41f`):不依赖 GC
+- [X] **API Key 走 `safeStorage` 加密** + 首次启动 onboarding 面板(`0adeac0`),弃用 `.env`
+- [X] **用户偏好(音乐/字幕)持久化到 localStorage**(`8f22d0b`)
+- [X] **pre-commit hook 跑 prettier**(`705bf96`,不引入 lint-staged)
+- [X] **TSC 0 错**(`3ce131a`)
 
 ### 🚧 进行中
 
