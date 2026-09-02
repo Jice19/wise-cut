@@ -132,10 +132,17 @@ export const createMediaProtocolHandler = ({
             return createTextResponse('Media asset not found', 404);
         }
 
-        return fetchMediaFile({
-            filePath,
-            request
-        });
+        try {
+            return await fetchMediaFile({
+                filePath,
+                request
+            });
+        } catch {
+            // 源文件缺失 / 读取失败:回 404 而不是让 handler 抛异常。
+            // 否则 Chromium 侧会报 net::ERR_UNEXPECTED 并刷红错误(预览
+            // 缩略图/视频源失效时的典型表现),页面也没法静默降级。
+            return createTextResponse('Media file not found', 404);
+        }
     };
 };
 

@@ -18,7 +18,7 @@ describe('media protocol', () => {
                 stream: true,
                 supportFetchAPI: true
             },
-            scheme: 'app-media'
+            scheme: 'miaoma-media'
         });
     });
 
@@ -57,17 +57,17 @@ describe('media protocol', () => {
 
         const video = await handler(
             new Request(
-                'app-media://project/project_media/video/video_asset_001'
+                'miaoma-media://project/project_media/video/video_asset_001'
             )
         );
         const voice = await handler(
             new Request(
-                'app-media://project/project_media/voice/voice_asset_001'
+                'miaoma-media://project/project_media/voice/voice_asset_001'
             )
         );
         const thumbnail = await handler(
             new Request(
-                'app-media://project/project_media/thumbnail/thumbnail_asset_001'
+                'miaoma-media://project/project_media/thumbnail/thumbnail_asset_001'
             )
         );
 
@@ -104,13 +104,45 @@ describe('media protocol', () => {
             } as unknown as VideoProjectStore
         });
         const response = await handler(
-            new Request('app-media://custom-voice/voice_001/reference')
+            new Request('miaoma-media://custom-voice/voice_001/reference')
         );
 
         expect(await response.text()).toBe('custom voice');
         expect(fetchedFiles).toEqual([
             '/Users/heyi/Library/Application Support/app/custom-voices/voice_001/reference.wav'
         ]);
+    });
+
+    it('returns 404 instead of crashing when the media file is missing', async () => {
+        const project = structuredClone(sampleVideoProject);
+
+        project.project.id = 'project_missing';
+        project.assets.videos[0]!.path = '/Users/heyi/Downloads/missing.mp4';
+
+        const { createMediaProtocolHandler } = await import(
+            '../client/media-protocol'
+        );
+        const handler = createMediaProtocolHandler({
+            fetchMediaFile: async () => {
+                throw new Error('ENOENT: missing file');
+            },
+            store: {
+                readProjectById: async () => ({
+                    data: project,
+                    success: true
+                })
+            } as unknown as VideoProjectStore
+        });
+
+        const response = await handler(
+            new Request(
+                'miaoma-media://project/project_missing/video/video_asset_001'
+            )
+        );
+
+        // 源文件缺失时协议层吞掉错误回 404,而不是让 Chromium 刷
+        // net::ERR_UNEXPECTED(预览降级的关键)。
+        expect(response.status).toBe(404);
     });
 
     it('rejects malformed media URLs before touching the filesystem', async () => {
@@ -127,7 +159,7 @@ describe('media protocol', () => {
             } as unknown as VideoProjectStore
         });
         const response = await handler(
-            new Request('app-media://project/project_media/other/asset_001')
+            new Request('miaoma-media://project/project_media/other/asset_001')
         );
 
         expect(response.status).toBe(400);

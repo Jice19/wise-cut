@@ -223,6 +223,16 @@ const recordRunFinished = ({
         status: AgentRunStatus;
     };
 }) => {
+    // 遗留的 best-effort 记录层:insertProject 目前没有生产调用者,projects
+    // 表在真实运行里几乎总是空的——直接写 project_id 会触发
+    // FOREIGN KEY constraint failed 刷 warn。project 行缺失时宁可留
+    // NULL(记录仍完整),不让外键错误刷日志。
+    let projectId = run.projectId ?? null;
+
+    if (projectId !== null && !findProjectById({ database, projectId })) {
+        projectId = null;
+    }
+
     requireDatabase({ database })
         .prepare(
             `update agent_runs
@@ -234,7 +244,7 @@ const recordRunFinished = ({
             where id = ?`
         )
         .run(
-            run.projectId ?? null,
+            projectId,
             run.status,
             run.completedAt,
             run.errorMessage ?? null,

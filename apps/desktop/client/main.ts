@@ -45,6 +45,10 @@ const closeAgentDatabase = () => {
     }
 };
 
+// 活动导出的取消句柄:registerVideoExportIpc 在 whenReady 里赋值,
+// before-quit 用它中止进行中的导出并杀掉 ffmpeg,避免退出后残留子进程。
+let cancelActiveVideoExport: (() => void) | undefined;
+
 const createWindow = () => {
     const mainWindow = new BrowserWindow(
         createMainWindowOptions({
@@ -173,7 +177,7 @@ app.whenReady().then(() => {
     });
     registerFileSelectIpc();
     registerVideoProjectIpc({ ipcMain, store: videoProjectStore });
-    registerVideoExportIpc({
+    cancelActiveVideoExport = registerVideoExportIpc({
         createRenderer: (emitProgress) =>
             createVideoExportRenderer({
                 app,
@@ -187,13 +191,18 @@ app.whenReady().then(() => {
                 dialog,
                 input
             })
-    });
+    }).cancelActiveExport;
     registerVideoAgentIpc({
         controller: createLangGraphVideoAgentController({
             agentDatabase: agentDatabaseHelpers,
             customVoiceReferenceResolver:
                 customVoiceLibrary.resolveReferencePath,
             store: videoProjectStore,
+            // 云端 TTS 缓存(内容哈希 + LRU):相同文本/音色不重复调用 API
+            voiceCacheDirectory: path.join(
+                app.getPath('userData'),
+                'voice-cache'
+            ),
             voiceOutputDirectory: path.join(agentRunDirectory, 'voices')
         }),
         ipcMain
@@ -217,6 +226,9 @@ app.on('window-all-closed', () => {
 // `node:sqlite` 是同步句柄,OS 退出时会回收,但显式 close 是个好习惯。
 // 挂在 before-quit 而不是 will-quit,这样还能给异步操作一个完成窗口。
 app.on('before-quit', () => {
+    // abort 是同步调用,先杀导出进程再关 sqlite。
+    cancelActiveVideoExport?.();
+
     try {
         closeAgentDatabase();
     } catch (error) {

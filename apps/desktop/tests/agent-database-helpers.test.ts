@@ -196,6 +196,36 @@ describe('agent database helpers — agent_runs', () => {
         }
     });
 
+    it('finishes a run without crashing when the project row is missing (FK fallback)', () => {
+        const { close, helpers } = createInMemoryDatabase();
+        try {
+            helpers.recordRunStarted({
+                id: 'run_001',
+                startedAt: '2026-07-25T10:00:00.000Z'
+            });
+
+            // projects 表没有 project_999(insertProject 无生产调用者,
+            // 这是真实运行里的常见状态):不能触发 FK 崩溃/刷 warn。
+            expect(() =>
+                helpers.recordRunFinished({
+                    completedAt: '2026-07-25T10:05:00.000Z',
+                    id: 'run_001',
+                    projectId: 'project_999',
+                    status: 'completed'
+                })
+            ).not.toThrow();
+
+            const run = helpers.findAgentRun('run_001');
+
+            expect(run?.status).toBe('completed');
+            expect(run?.completedAt).toBe('2026-07-25T10:05:00.000Z');
+            // 降级:project 行不存在时不写 project_id(留 NULL),记录仍完整
+            expect(run?.projectId).toBeNull();
+        } finally {
+            close();
+        }
+    });
+
     it('records failed run with error_message', () => {
         const { close, helpers } = createInMemoryDatabase();
         try {

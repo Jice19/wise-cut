@@ -16,6 +16,7 @@ import {
     type ModelProvider,
     RoutingTtsProvider,
     serializeError,
+    TtsCacheProvider,
     type TtsProvider,
     type VideoCreationGraphRunner,
     VolcengineTtsProvider
@@ -142,6 +143,13 @@ type ProviderFactoryInput = {
     loadEnv?: () => AgentEnv;
     modelProvider?: ModelProvider;
     ttsProvider?: TtsProvider;
+    /**
+     * 可选:语音缓存目录。提供后会把云端 TTS(Volcengine)包一层
+     * TtsCacheProvider(内容哈希 + LRU):相同音色/文本/语速/音量不重复
+     * 调用 API,命中直接复用缓存音频。不提供则不做缓存(测试/降级路径)。
+     * 本地 IndexTTS2 不缓存(零成本 + 输出依赖参考音频)。
+     */
+    voiceCacheDirectory?: string;
 };
 
 type ProviderFactoryResult = {
@@ -206,7 +214,8 @@ const createDefaultProviders = ({
     customVoiceReferenceResolver,
     loadEnv,
     modelProvider,
-    ttsProvider
+    ttsProvider,
+    voiceCacheDirectory
 }: ProviderFactoryInput): ProviderFactoryResult => {
     if (modelProvider && ttsProvider) {
         return {
@@ -218,8 +227,24 @@ const createDefaultProviders = ({
     // loadAgentEnv 现在只读 process.env — 配置由 main 启动时从
     // safeStorage 注入,不再读 .env 文件。
     const env = loadEnv?.() ?? loadAgentEnv();
-    const defaultTtsProvider =
-        ttsProvider ?? new VolcengineTtsProvider({ env });
+    const volcengineProvider = ttsProvider ?? new VolcengineTtsProvider({ env });
+    // 云端 TTS 是 API 成本所在:套内容哈希 + LRU 缓存,相同内容不重复调用。
+    // 本地 IndexTTS2 不走缓存(零 API 成本,且输出依赖参考音频)。
+    const defaultTtsProvider = voiceCacheDirectory
+        ? new TtsCacheProvider({
+              cacheDirectory: voiceCacheDirectory,
+              inner: volcengineProvider
+          })
+        : volcengineProvider;
+
+    // eslint-disable-next-line no-console
+    console.log(
+        `[tts-cache] ${
+            voiceCacheDirectory
+                ? `enabled, cache dir: ${voiceCacheDirectory}`
+                : 'disabled (no voiceCacheDirectory)'
+        }`
+    );
     const resolvedTtsProvider =
         ttsProvider || !customVoiceReferenceResolver
             ? defaultTtsProvider
@@ -266,8 +291,10 @@ const graphResultToOperationResult = ({
 }: {
     errors: string[];
     runId: string;
-    status: 'completed' | 'failed' | 'waiting_for_approval';
+    status: 'cancelled' | 'completed' | 'failed' | 'waiting_for_approval';
 }): VideoAgentOperationResult<VideoAgentResultData> => {
+    // 取消的 run 不当作失败:run.cancelled 事件由 cancel handler 已发,
+    // 这里只返回成功形态,避免渲染层再看到一次 RUN_FAILED。
     if (status === 'failed') {
         return failure({
             code: 'RUN_FAILED',
@@ -647,6 +674,7 @@ export const createLangGraphVideoAgentController = ({
     now = () => new Date().toISOString(),
     store,
     ttsProvider,
+    voiceCacheDirectory,
     voiceOutputDirectory = path.join(tmpdir(), 'miaoma-magicut', 'voices')
 }: {
     /**
@@ -667,10 +695,21 @@ export const createLangGraphVideoAgentController = ({
     store: VideoProjectStore;
     ttsProvider?: TtsProvider;
     voiceOutputDirectory?: string;
+    /**
+     * 可选:云端 TTS 缓存目录(内容哈希 + LRU)。传了才启用缓存,
+     * 见 createDefaultProviders。
+     */
+    voiceCacheDirectory?: string;
 }): VideoAgentIpcController => {
     const activeEmitters = new Map<string, VideoAgentEventEmitter>();
     const runs = new Map<string, LangGraphVideoAgentRunState>();
     const voiceRegenerationRuns = new Map<string, VoiceRegenerationRunState>();
+    // 每个 agent run 一个 AbortController:cancel 时 abort,让 LangGraph
+    // invoke 立即中止——不会再启动后续节点,事件流停止推进。
+    // 注意残留边界:正在飞行的那次 LLM fetch 会自然跑完(HTTP 请求无法
+    // 撤回),若它恰好抛了可重试错误,provider 内部 withRetry 最多再重试
+    // 2 次(它拿不到 per-run signal);之后链就安静了。UI 层面不受影响。
+    const abortControllers = new Map<string, AbortController>();
     // Step 2 多模态理解用到的缓存:
     // - keyframesByRunId: scan 阶段推过来的所有 keyframes(全量,用于兜底)
     // - fileNameByRunId: 资产 → 原始 fileName(修之前 .map(()=>'').join('') 永远是空字符串的 bug)
@@ -835,6 +874,9 @@ export const createLangGraphVideoAgentController = ({
         fileNameByRunId.delete(runId);
         selectedFramesByRunId.delete(runId);
         voiceRegenerationRuns.delete(runId); // 已存在的清理
+        // 终态(run.completed / run.failed / run.cancelled)意味着这条 run
+        // 不再需要可中止的图执行,abort controller 一并回收。
+        abortControllers.delete(runId);
         // 注意:不要清 lastSequences / activeEmitters,它们是事件分发
         // 上下文,emitGraphEvent / emitForRun 自己会处理
     };
@@ -912,7 +954,8 @@ export const createLangGraphVideoAgentController = ({
             customVoiceReferenceResolver,
             loadEnv,
             modelProvider,
-            ttsProvider
+            ttsProvider,
+            voiceCacheDirectory
         });
 
         return providers;
@@ -1091,13 +1134,19 @@ export const createLangGraphVideoAgentController = ({
             }
 
             return runWithEmitter(input.runId, emit, async () => {
-                const result = await getRunner().resume({
-                    approval: {
-                        approved: input.approved,
-                        feedback: input.feedback?.trim() || undefined
+                const result = await getRunner().resume(
+                    {
+                        approval: {
+                            approved: input.approved,
+                            feedback: input.feedback?.trim() || undefined
+                        },
+                        runId: input.runId
                     },
-                    runId: input.runId
-                });
+                    {
+                        // resume 中途用户取消 → abort,避免继续烧 API
+                        signal: abortControllers.get(input.runId)?.signal
+                    }
+                );
 
                 return graphResultToOperationResult(result);
             });
@@ -1136,6 +1185,10 @@ export const createLangGraphVideoAgentController = ({
                 });
             }
 
+            // 先拿 controller 引用再 emit:emit → cleanupRunState 会把
+            // abortControllers 里的条目删掉,引用先保存下来才能 abort。
+            const abortController = abortControllers.get(input.runId);
+
             emitForRun(
                 state,
                 {
@@ -1144,6 +1197,11 @@ export const createLangGraphVideoAgentController = ({
                 },
                 emit
             );
+
+            // 真实中止图执行:abort 后 LangGraph invoke 立即抛 AbortError,
+            // runner 返回 'cancelled',后续节点不再执行(在飞请求自然跑完,
+            // 见 abortControllers 上方的残留边界注释)。
+            abortController?.abort();
 
             return success({
                 runId: input.runId
@@ -1289,16 +1347,28 @@ export const createLangGraphVideoAgentController = ({
             }
 
             activeEmitters.set(runId, emit);
+            const abortController = new AbortController();
+
+            abortControllers.set(runId, abortController);
 
             const runInBackground = async () => {
                 try {
-                    await getRunner().start({
-                        prompt: input.prompt,
-                        runId,
-                        sourceAssetDirectory: input.sourceAssetDirectory,
-                        sourceFilePaths: input.sourceFilePaths
-                    });
+                    await getRunner().start(
+                        {
+                            prompt: input.prompt,
+                            runId,
+                            sourceAssetDirectory: input.sourceAssetDirectory,
+                            sourceFilePaths: input.sourceFilePaths
+                        },
+                        { signal: abortController.signal }
+                    );
                 } catch (error) {
+                    // 用户已取消:run.cancelled 已由 cancel handler 发出,
+                    // 这里不再补 run.failed,避免 UI 出现"已取消后又失败"。
+                    if (abortController.signal.aborted) {
+                        return;
+                    }
+
                     // 同步打到 main 进程 terminal,即使 emit 后被吞掉也至少
                     // 留个 trace,排错不用瞎猜
                     // eslint-disable-next-line no-console
@@ -1313,6 +1383,10 @@ export const createLangGraphVideoAgentController = ({
                     );
                 } finally {
                     activeEmitters.delete(runId);
+                    // 注意:不要在这里删 abortControllers——run 可能停在
+                    // waiting_for_approval(interrupt),approve/resume 阶段
+                    // 用户仍可能取消,controller 要保留到终态事件
+                    // (cleanupRunState 负责回收)。
                 }
             };
 
