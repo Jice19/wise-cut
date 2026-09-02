@@ -415,3 +415,46 @@ describe('video creation graph', () => {
         );
     });
 });
+
+describe('video creation graph + AbortSignal', () => {
+    it('returns cancelled without emitting run.failed when aborted mid-run', async () => {
+        const { tools } = createFakeTools();
+        let releaseScan: (() => void) | undefined;
+        const scanGate = new Promise<void>((resolve) => {
+            releaseScan = resolve;
+        });
+        const blockedTools: VideoAgentTools = {
+            ...tools,
+            // 让 scan_assets 卡住,模拟一次长 LLM/工具调用
+            scanAssets: async () => {
+                await scanGate;
+                return assets;
+            }
+        };
+        const { emit, events } = collectEvents();
+        const graph = createVideoCreationGraph({
+            emit,
+            tools: blockedTools
+        });
+        const controller = new AbortController();
+
+        const startPromise = graph.start(runInput, {
+            signal: controller.signal
+        });
+
+        // 给 graph 一点时间进到 scan_assets 里
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        controller.abort();
+
+        const result = await startPromise;
+
+        releaseScan?.();
+
+        expect(result.status).toBe('cancelled');
+        expect(result.errors).toEqual([]);
+        // 取消不该被误报为 run.failed
+        expect(
+            events.some((event) => event.type === 'run.failed')
+        ).toBe(false);
+    });
+});

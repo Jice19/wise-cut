@@ -152,3 +152,46 @@ describe('withRetry', () => {
         expect(retries[1]).toEqual({ attempt: 2, delayMs: 200 }); // 100 * 2^1 + 0
     });
 });
+
+describe('withRetry + AbortSignal', () => {
+    it('throws AbortError without calling the operation when already aborted', async () => {
+        let calls = 0;
+        const controller = new AbortController();
+
+        controller.abort();
+
+        const failure = await withRetry(
+            async () => {
+                calls += 1;
+                return 'never';
+            },
+            { signal: controller.signal }
+        ).catch((error: unknown) => error);
+
+        expect(calls).toBe(0);
+        expect(failure).toBeInstanceOf(Error);
+        expect((failure as Error).name).toBe('AbortError');
+    });
+
+    it('aborts during backoff instead of sleeping the full delay', async () => {
+        let calls = 0;
+        const controller = new AbortController();
+
+        const pending = withRetry(
+            async () => {
+                calls += 1;
+                throw new Error('HTTP 500: server error');
+            },
+            { baseDelayMs: 60_000, signal: controller.signal }
+        );
+
+        // 第一次调用已失败,正在 60s 退避里;此时 abort 应立即终止。
+        setTimeout(() => controller.abort(), 30);
+
+        const failure = await pending.catch((error: unknown) => error);
+
+        expect(calls).toBe(1);
+        expect(failure).toBeInstanceOf(Error);
+        expect((failure as Error).name).toBe('AbortError');
+    });
+});

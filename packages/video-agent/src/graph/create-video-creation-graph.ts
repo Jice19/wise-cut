@@ -18,6 +18,7 @@ import type {
     VideoAgentTools,
     VideoCreationInput
 } from '../tools/video-agent-tools';
+import { isAbortError } from '../utils/with-retry';
 
 import { createVideoCreationCheckpointer } from './checkpoint';
 import { createVideoCreationNodes } from './nodes';
@@ -37,15 +38,30 @@ export type VideoCreationGraphResult = {
     runId: string;
     savedProjectPath?: string;
     state?: Partial<VideoCreationGraphState>;
-    status: 'completed' | 'failed' | 'waiting_for_approval';
+    /**
+     * 'cancelled':执行被 AbortSignal 中止(用户取消)。此时不 emit
+     * run.failed——取消语义由调用方(IPC 层)负责发 run.cancelled。
+     */
+    status: 'cancelled' | 'completed' | 'failed' | 'waiting_for_approval';
+};
+
+/** 执行选项:signal 传入后,abort 会中止整条图执行并返回 'cancelled'。 */
+export type VideoGraphRunOptions = {
+    signal?: AbortSignal;
 };
 
 export type VideoCreationGraphRunner = {
-    resume: (input: {
-        approval: SceneApprovalResume;
-        runId: string;
-    }) => Promise<VideoCreationGraphResult>;
-    start: (input: VideoCreationInput) => Promise<VideoCreationGraphResult>;
+    resume: (
+        input: {
+            approval: SceneApprovalResume;
+            runId: string;
+        },
+        options?: VideoGraphRunOptions
+    ) => Promise<VideoCreationGraphResult>;
+    start: (
+        input: VideoCreationInput,
+        options?: VideoGraphRunOptions
+    ) => Promise<VideoCreationGraphResult>;
 };
 
 const isInterruptResult = (
@@ -235,24 +251,41 @@ export const createVideoCreationGraph = ({
         };
     };
 
+    // 取消的 run 不补 run.failed(调用方已发 run.cancelled),直接以
+    // 'cancelled' 终态返回;checkpoint 保留在最后一个节点边界,之后可 resume。
+    const abortRun = ({
+        runId
+    }: {
+        runId: string;
+    }): VideoCreationGraphResult => ({
+        errors: [],
+        runId,
+        status: 'cancelled'
+    });
+
     return {
-        resume: async ({ approval, runId }) => {
+        resume: async ({ approval, runId }, { signal } = {}) => {
             try {
                 const output = await app.invoke(
                     new Command({ resume: approval }),
                     {
                         configurable: {
                             thread_id: runId
-                        }
+                        },
+                        signal
                     }
                 );
 
                 return toResult({ output, runId });
             } catch (error) {
+                if (isAbortError(error)) {
+                    return abortRun({ runId });
+                }
+
                 return failRun({ error, runId });
             }
         },
-        start: async (input) => {
+        start: async (input, { signal } = {}) => {
             getEmitter(input.runId).emit({
                 input: {
                     prompt: input.prompt,
@@ -271,12 +304,17 @@ export const createVideoCreationGraph = ({
                     {
                         configurable: {
                             thread_id: input.runId
-                        }
+                        },
+                        signal
                     }
                 );
 
                 return toResult({ output, runId: input.runId });
             } catch (error) {
+                if (isAbortError(error)) {
+                    return abortRun({ runId: input.runId });
+                }
+
                 return failRun({ error, runId: input.runId });
             }
         }
