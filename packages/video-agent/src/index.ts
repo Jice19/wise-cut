@@ -110,6 +110,10 @@ export type {
     TtsSynthesisResult
 } from './providers/tts-provider';
 export {
+    TtsCacheProvider,
+    type TtsCacheProviderOptions
+} from './providers/tts-cache-provider';
+export {
     createWsTtsProtocolSocket,
     VolcengineTtsProvider,
     VolcengineTtsProviderError
