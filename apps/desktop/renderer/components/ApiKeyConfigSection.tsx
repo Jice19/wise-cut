@@ -72,7 +72,7 @@ export const ApiKeyConfigSection = () => {
         <>
             <section
                 data-api-key-config-section="true"
-                className="absolute bottom-6 left-1/2 z-20 flex w-[480px] max-w-[calc(100%-80px)] -translate-x-1/2 items-center justify-between gap-3 rounded-2xl border border-[#E7E5E0] bg-white/95 px-4 py-2.5 shadow-[0_4px_18px_rgba(28,25,23,0.08)] backdrop-blur"
+                className="flex w-[480px] max-w-[calc(100%-80px)] items-center justify-between gap-3 rounded-2xl border border-[#E7E5E0] bg-white/95 px-4 py-2.5 shadow-[0_4px_18px_rgba(28,25,23,0.08)] backdrop-blur"
             >
                 <div className="grid gap-0.5">
                     <p className="text-[12px] font-semibold leading-none text-[#1C1917]">

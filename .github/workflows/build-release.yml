@@ -1,0 +1,79 @@
+name: Build & Release
+
+on:
+    push:
+        tags:
+            - 'v*'
+
+jobs:
+    build:
+        strategy:
+            matrix:
+                include:
+                    - os: macos-latest
+                      platform: darwin
+                      make_cmd: make:mac
+                    - os: windows-latest
+                      platform: win32
+                      make_cmd: make:win
+
+        runs-on: ${{ matrix.os }}
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@v4
+              with:
+                  version: 10
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Download Windows FFmpeg binaries
+              if: matrix.platform == 'win32'
+              run: node scripts/download-ffmpeg-win.js
+
+            - name: Build & Package
+              run: pnpm --filter @wise-cut/desktop ${{ matrix.make_cmd }}
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Upload artifacts
+              uses: actions/upload-artifact@v4
+              with:
+                  name: wise-cut-${{ matrix.platform }}
+                  path: apps/desktop/out/make/**/*
+
+    release:
+        needs: build
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+
+        steps:
+            - name: Download macOS artifacts
+              uses: actions/download-artifact@v4
+              with:
+                  name: wise-cut-darwin
+                  path: dist/darwin
+
+            - name: Download Windows artifacts
+              uses: actions/download-artifact@v4
+              with:
+                  name: wise-cut-win32
+                  path: dist/win32
+
+            - name: Create Release
+              uses: softprops/action-gh-release@v2
+              with:
+                  files: |
+                      dist/darwin/**/*
+                      dist/win32/**/*
+                  generate_release_notes: true

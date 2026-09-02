@@ -16,6 +16,7 @@ import type {
     CustomVoiceOperationResult,
     CustomVoiceProviderStatus
 } from './shared/custom-voice';
+import type { AppUpdateCheckResult } from './shared/app-updater-channels';
 import type { FileSelectResult } from './shared/file-select-channels';
 import type {
     DesktopAgentRunEvent,
@@ -39,6 +40,10 @@ import type {
 declare global {
     interface Window {
         miaomaAPI: {
+            appUpdater: {
+                checkForUpdate: () => Promise<AppUpdateCheckResult>;
+                openReleasePage: (url: string) => Promise<void>;
+            };
             apiConfig: {
                 clear: () => Promise<{ success: boolean }>;
                 getStatus: () => Promise<ApiConfigStatus>;

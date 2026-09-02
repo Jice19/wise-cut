@@ -7,6 +7,10 @@ import {
     type ApiConfigSetInput,
     type ApiConfigStatus
 } from '../shared/api-config-channels';
+import {
+    appUpdaterIpcChannels,
+    type AppUpdateCheckResult
+} from '../shared/app-updater-channels';
 import type { CustomVoiceImportInput } from '../shared/custom-voice';
 import { customVoiceIpcChannels } from '../shared/custom-voice-channels';
 import {
@@ -38,6 +42,12 @@ contextBridge.exposeInMainWorld('miaomaAPI', {
             ipcRenderer.invoke(fileSelectIpcChannels.selectVideoDirectory),
         selectVideoFiles: async (): Promise<FileSelectResult> =>
             ipcRenderer.invoke(fileSelectIpcChannels.selectVideoFiles)
+    },
+    appUpdater: {
+        checkForUpdate: async (): Promise<AppUpdateCheckResult> =>
+            ipcRenderer.invoke(appUpdaterIpcChannels.checkForUpdate),
+        openReleasePage: async (url: string) =>
+            ipcRenderer.invoke(appUpdaterIpcChannels.openReleasePage, url)
     },
     apiConfig: {
         clear: async () => ipcRenderer.invoke(apiConfigIpcChannels.clear),

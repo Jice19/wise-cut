@@ -1,5 +1,7 @@
 /* */
 import type { VideoProject } from '@wise-cut/video-project';
+import type { AppUpdateCheckResult } from './shared/app-updater-channels';
+
 
 import type {
     VideoProjectDeleteResult,
@@ -33,6 +35,10 @@ import type {
 declare global {
     interface Window {
         miaomaAPI: {
+            appUpdater: {
+                checkForUpdate: () => Promise<AppUpdateCheckResult>;
+                openReleasePage: (url: string) => Promise<void>;
+            };
             customVoice: {
                 checkIndexTts2: () => Promise<
                     CustomVoiceOperationResult<CustomVoiceProviderStatus>

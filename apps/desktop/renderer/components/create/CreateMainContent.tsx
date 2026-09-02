@@ -2,6 +2,7 @@
 import type { CreateAgentSubmitInput } from '../../types/create';
 import type { CreatePageContent } from '../../types/create';
 import { ApiKeyConfigSection } from '../ApiKeyConfigSection';
+import { AppUpdateSection } from '../AppUpdateSection';
 import SoftAurora from '../reactbits/SoftAurora/SoftAurora';
 
 import { CreateHero } from './CreateHero';
@@ -46,7 +47,10 @@ export const CreateMainContent = ({
                         onSubmit={onAgentSubmit}
                     />
                 </div>
-                <ApiKeyConfigSection />
+                <div className="absolute bottom-6 left-1/2 z-20 flex -translate-x-1/2 items-center gap-4">
+                    <ApiKeyConfigSection />
+                    <AppUpdateSection />
+                </div>
             </div>
         </section>
     );

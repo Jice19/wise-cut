@@ -63,3 +63,6 @@ out/
 **/*/generated
 
 sample
+
+# Codebuddy
+.codebuddy/
