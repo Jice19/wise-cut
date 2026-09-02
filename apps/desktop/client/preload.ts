@@ -58,6 +58,8 @@ contextBridge.exposeInMainWorld('miaomaAPI', {
         list: async () => ipcRenderer.invoke(customVoiceIpcChannels.list)
     },
     videoExport: {
+        cancel: async () =>
+            ipcRenderer.invoke(videoExportIpcChannels.cancel),
         onProgress: (listener: (event: VideoExportProgressEvent) => void) => {
             const subscription = (
                 _event: IpcRendererEvent,

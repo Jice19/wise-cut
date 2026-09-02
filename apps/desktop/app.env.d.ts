@@ -46,6 +46,7 @@ declare global {
             };
             ping: () => Promise<{ success: boolean }>;
             videoExport: {
+                cancel: () => Promise<boolean>;
                 onProgress: (
                     listener: (event: VideoExportProgressEvent) => void
                 ) => () => void;

@@ -1,4 +1,6 @@
 
+import { useEffect, useRef, useState } from 'react';
+
 import type { VideoExportProgressEvent } from '../../shared/video-export';
 
 export type ExportDialogState =
@@ -7,6 +9,37 @@ export type ExportDialogState =
     | 'failed'
     | 'idle'
     | 'running';
+
+/**
+ * 导出剩余时间估算(纯函数,便于单测)。
+ *
+ * 原理:已经过去的耗时 / 已完成的百分比 ≈ 总耗时,剩余 =
+ * elapsed / percent * (100 - percent)。
+ * - 用指数移动平均(EMA,α=0.3)平滑,避免 ffmpeg 进度抖动把倒计时带飞;
+ * - 前 1.5s 数据点太少直接采用原始值(EMA 起步容易偏差);
+ * - percent <= 0(还没开始)或 >= 100(已结束)时沿用上一次估算。
+ */
+export const computeEstimatedRemainingMs = ({
+    elapsedMs,
+    percent,
+    previousEtaMs
+}: {
+    elapsedMs: number;
+    percent: number;
+    previousEtaMs?: number;
+}): number | undefined => {
+    if (percent <= 0 || percent >= 100) {
+        return previousEtaMs;
+    }
+
+    const rawEtaMs = (elapsedMs * (100 - percent)) / percent;
+
+    if (previousEtaMs === undefined || elapsedMs < 1500) {
+        return rawEtaMs;
+    }
+
+    return previousEtaMs * 0.7 + rawEtaMs * 0.3;
+};
 
 const progressTone = {
     cancelled: {
@@ -48,9 +81,13 @@ const formatDuration = (durationMs = 0) => {
     )}`;
 };
 
+const ghostButtonClass =
+    'h-10 rounded-full border border-white/10 px-5 text-[13px] font-[800] text-[#CBD1DA] transition-colors duration-200 hover:border-white/18 hover:bg-white/8 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#B497CF] disabled:cursor-not-allowed disabled:opacity-60';
+
 export const ExportProgressDialog = ({
     durationMs,
     onChoosePath,
+    onCancelExport,
     onClose,
     onStartExport,
     outputPath,
@@ -59,18 +96,68 @@ export const ExportProgressDialog = ({
 }: {
     durationMs?: number;
     onChoosePath?: () => void;
+    onCancelExport?: () => void;
     onClose?: () => void;
     onStartExport?: () => void;
     outputPath?: string;
     progress?: VideoExportProgressEvent;
     state?: ExportDialogState;
 }) => {
+    // ffmpeg 首次推 rendering 进度的时间戳,用于估算剩余时间。
+    const renderStartAtRef = useRef<number | undefined>(undefined);
+    const smoothedEtaRef = useRef<number | undefined>(undefined);
+    // 每秒 tick 一次,让倒计时在进度事件间隙也持续走动。
+    const [nowTick, setNowTick] = useState(0);
+
+    useEffect(() => {
+        if (state === 'running' && progress?.phase === 'rendering') {
+            if (renderStartAtRef.current === undefined) {
+                renderStartAtRef.current = Date.now();
+            }
+        } else {
+            // 非 running(完成/失败/取消/idle):复位计时,避免下次导出残留旧值。
+            renderStartAtRef.current = undefined;
+            smoothedEtaRef.current = undefined;
+        }
+    }, [progress?.phase, state]);
+
+    useEffect(() => {
+        if (state !== 'running') return;
+
+        const timer = setInterval(() => setNowTick(Date.now()), 1000);
+
+        return () => clearInterval(timer);
+    }, [state]);
+
     if (!state) return null;
 
     const tone = progressTone[state];
     const percent = progress?.percent ?? 0;
     const canClose = state !== 'running';
     const canStart = state === 'idle' && Boolean(outputPath);
+
+    // 剩余时间 = 已耗时 / percent * (100 - percent),EMA 平滑。
+    const renderStartAt = renderStartAtRef.current;
+    let remainingMs: number | undefined;
+
+    if (
+        state === 'running' &&
+        renderStartAt !== undefined &&
+        percent > 0 &&
+        percent < 100
+    ) {
+        const elapsedMs = Math.max(0, (nowTick || Date.now()) - renderStartAt);
+        const estimated = computeEstimatedRemainingMs({
+            elapsedMs,
+            percent,
+            previousEtaMs: smoothedEtaRef.current
+        });
+
+        if (estimated !== undefined) {
+            smoothedEtaRef.current = estimated;
+            remainingMs = estimated;
+        }
+    }
 
     return (
         <div className="fixed inset-0 z-[90] grid place-items-center bg-[#05060A]/72 px-6 backdrop-blur-[18px]">
@@ -113,6 +200,16 @@ export const ExportProgressDialog = ({
                             {formatDuration(durationMs)}
                         </span>
                     </div>
+                    {remainingMs !== undefined ? (
+                        <div className="flex items-center justify-between gap-4 text-[13px]">
+                            <span className="font-[750] text-[#AEB4BF]">
+                                预计剩余
+                            </span>
+                            <span className="font-[850] text-white">
+                                {formatDuration(remainingMs)}
+                            </span>
+                        </div>
+                    ) : null}
                     <div className="flex items-center justify-between gap-4 text-[13px]">
                         <span className="font-[750] text-[#AEB4BF]">
                             输出格式
@@ -139,14 +236,24 @@ export const ExportProgressDialog = ({
                 ) : null}
 
                 <div className="mt-6 flex justify-between gap-3">
-                    <button
-                        type="button"
-                        className="h-10 rounded-full border border-white/10 px-5 text-[13px] font-[800] text-[#CBD1DA] transition-colors duration-200 hover:border-white/18 hover:bg-white/8 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#B497CF] disabled:cursor-not-allowed disabled:opacity-60"
-                        disabled={!canClose}
-                        onClick={onClose}
-                    >
-                        关闭
-                    </button>
+                    {state === 'running' ? (
+                        <button
+                            type="button"
+                            className={ghostButtonClass}
+                            onClick={onCancelExport}
+                        >
+                            取消导出
+                        </button>
+                    ) : (
+                        <button
+                            type="button"
+                            className={ghostButtonClass}
+                            disabled={!canClose}
+                            onClick={onClose}
+                        >
+                            关闭
+                        </button>
+                    )}
                     <div className="flex gap-3">
                         <button
                             type="button"

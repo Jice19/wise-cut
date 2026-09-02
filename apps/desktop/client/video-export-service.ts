@@ -52,7 +52,20 @@ type RunFfmpeg = (input: {
     durationMs: number;
     ffmpegPath: string;
     onProgress?: (progress: FfmpegProgressInput) => void;
+    signal?: AbortSignal;
 }) => Promise<void>;
+
+/**
+ * 用户主动取消导出时由 runFfmpeg 抛出;服务层据此返回 CANCELLED 而不是
+ * FFMPEG_FAILED。单独建类型而不是复用 Error,避免把 ffmpeg 偶发的
+ * "Killed" stderr 误判成用户取消。
+ */
+export class VideoExportCancelledError extends Error {
+    constructor(message = '导出已取消') {
+        super(message);
+        this.name = 'VideoExportCancelledError';
+    }
+}
 
 type VideoExportRendererDependencies = {
     app: VideoExportAppContext;
@@ -110,44 +123,72 @@ const parseFfmpegProgressMs = (chunk: string) => {
 const clampProgressPercent = (percent: number) =>
     Math.min(100, Math.max(0, Math.round(percent)));
 
-const defaultRunFfmpeg: RunFfmpeg = ({
-    args,
-    durationMs,
-    ffmpegPath,
-    onProgress
-}) =>
-    new Promise((resolve, reject) => {
-        const child = spawn(ffmpegPath, args, {
-            stdio: ['ignore', 'ignore', 'pipe']
-        });
-        const stderrChunks: Buffer[] = [];
-
-        child.stderr.on('data', (chunk: Buffer) => {
-            stderrChunks.push(chunk);
-            const rawTimeMs = parseFfmpegProgressMs(chunk.toString('utf8'));
-
-            if (typeof rawTimeMs !== 'number' || durationMs <= 0) return;
-
-            onProgress?.({
-                percent: clampProgressPercent((rawTimeMs / durationMs) * 100),
-                rawTimeMs
-            });
-        });
-        child.on('error', reject);
-        child.on('close', (code) => {
-            if (code === 0) {
-                resolve();
+export const createRunFfmpeg =
+    ({ spawn: spawnImpl }: { spawn: typeof spawn }): RunFfmpeg =>
+    ({ args, durationMs, ffmpegPath, onProgress, signal }) =>
+        new Promise((resolve, reject) => {
+            if (signal?.aborted) {
+                reject(new VideoExportCancelledError());
                 return;
             }
 
-            reject(
-                new Error(
-                    Buffer.concat(stderrChunks).toString('utf8') ||
-                        `FFmpeg exited with code ${code ?? 'unknown'}`
-                )
-            );
+            const child = spawnImpl(ffmpegPath, args, {
+                stdio: ['ignore', 'ignore', 'pipe']
+            });
+            const stderrChunks: Buffer[] = [];
+
+            const onAbort = () => {
+                // Windows 下 libuv 把 kill 映射成 TerminateProcess;ffmpeg
+                // 不会再派生子进程,单杀即可,没有孤儿风险。
+                child.kill('SIGTERM');
+            };
+
+            signal?.addEventListener('abort', onAbort, { once: true });
+
+            child.stderr.on('data', (chunk: Buffer) => {
+                stderrChunks.push(chunk);
+                const rawTimeMs = parseFfmpegProgressMs(chunk.toString('utf8'));
+
+                if (typeof rawTimeMs !== 'number' || durationMs <= 0) return;
+
+                onProgress?.({
+                    percent: clampProgressPercent(
+                        (rawTimeMs / durationMs) * 100
+                    ),
+                    rawTimeMs
+                });
+            });
+            child.on('error', (error) => {
+                if (signal?.aborted) {
+                    reject(new VideoExportCancelledError());
+                    return;
+                }
+
+                reject(error);
+            });
+            child.on('close', (code) => {
+                signal?.removeEventListener('abort', onAbort);
+
+                if (code === 0) {
+                    resolve();
+                    return;
+                }
+
+                if (signal?.aborted) {
+                    reject(new VideoExportCancelledError());
+                    return;
+                }
+
+                reject(
+                    new Error(
+                        Buffer.concat(stderrChunks).toString('utf8') ||
+                            `FFmpeg exited with code ${code ?? 'unknown'}`
+                    )
+                );
+            });
         });
-    });
+
+const defaultRunFfmpeg: RunFfmpeg = createRunFfmpeg({ spawn });
 
 const ensureExecutableExists = async (filePath: string) => {
     await access(filePath);
@@ -245,8 +286,16 @@ export const createVideoExportRenderer = ({
     };
 
     return async (
-        input: VideoExportRenderInput
+        input: VideoExportRenderInput,
+        { signal }: { signal?: AbortSignal } = {}
     ): Promise<VideoExportOperationResult> => {
+        if (signal?.aborted) {
+            return toFailure({
+                code: 'CANCELLED',
+                message: '已取消导出'
+            });
+        }
+
         const validation = validateVideoProject(input.project);
 
         if (validation.success === false) {
@@ -332,6 +381,7 @@ export const createVideoExportRenderer = ({
                 args: command.args,
                 durationMs: resolveVideoExportDurationMs(input.project),
                 ffmpegPath: command.ffmpegPath,
+                signal,
                 onProgress: (progress) => {
                     emit({
                         message: '正在渲染视频',
@@ -358,6 +408,19 @@ export const createVideoExportRenderer = ({
                 success: true
             };
         } catch (error) {
+            if (error instanceof VideoExportCancelledError || signal?.aborted) {
+                emit({
+                    message: '已取消导出',
+                    percent: 100,
+                    phase: 'cancelled'
+                });
+
+                return toFailure({
+                    code: 'CANCELLED',
+                    message: '已取消导出'
+                });
+            }
+
             const failure = {
                 code:
                     error instanceof Error &&

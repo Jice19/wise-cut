@@ -1,8 +1,9 @@
 /* */
-import { readFile } from 'node:fs/promises';
+import { EventEmitter } from 'node:events';
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
     type MusicClip,
@@ -628,15 +629,18 @@ describe('video export', () => {
         expect(videoExportIpcChannels.selectOutputPath).toBe(
             'videoExport:selectOutputPath'
         );
+        expect(videoExportIpcChannels.cancel).toBe('videoExport:cancel');
         expect(handlers.has(videoExportIpcChannels.render)).toBe(true);
         expect(handlers.has(videoExportIpcChannels.selectOutputPath)).toBe(
             true
         );
+        expect(handlers.has(videoExportIpcChannels.cancel)).toBe(true);
         expect(preloadSource).toContain('videoExportIpcChannels.render');
         expect(preloadSource).toContain('videoExportIpcChannels.progress');
         expect(preloadSource).toContain(
             'videoExportIpcChannels.selectOutputPath'
         );
+        expect(preloadSource).toContain('videoExportIpcChannels.cancel');
         expect(preloadSource).toContain('onProgress:');
         expect(preloadSource).toContain('selectOutputPath:');
         expect(preloadSource).toContain('videoExport: {');
@@ -644,6 +648,7 @@ describe('video export', () => {
         expect(envTypesSource).toContain('render: (');
         expect(envTypesSource).toContain('onProgress: (');
         expect(envTypesSource).toContain('selectOutputPath: (');
+        expect(envTypesSource).toContain('cancel: () => Promise<boolean>');
     });
 
     it('reports export progress while ffmpeg renders', async () => {
@@ -690,6 +695,215 @@ describe('video export', () => {
                 })
             ])
         );
+    });
+
+    it('kills the ffmpeg child and reports cancellation when the abort signal fires', async () => {
+        const { createRunFfmpeg, VideoExportCancelledError } = await import(
+            '../client/video-export-service'
+        );
+
+        const child = new EventEmitter() as EventEmitter & {
+            stderr: EventEmitter;
+            kill: (signal?: string) => boolean;
+        };
+        child.stderr = new EventEmitter();
+        const killCalls: (string | undefined)[] = [];
+        child.kill = (signal?: string) => {
+            killCalls.push(signal);
+            return true;
+        };
+
+        const runFfmpeg = createRunFfmpeg({
+            spawn: vi.fn(() => child) as unknown as typeof import('node:child_process').spawn
+        });
+
+        const controller = new AbortController();
+        const runPromise = runFfmpeg({
+            args: ['-i', 'input.mp4', 'output.mp4'],
+            durationMs: 10_000,
+            ffmpegPath: '/fake/ffmpeg',
+            signal: controller.signal
+        });
+
+        controller.abort();
+        expect(killCalls).toEqual(['SIGTERM']);
+
+        child.emit('close', 1);
+
+        await expect(runPromise).rejects.toBeInstanceOf(
+            VideoExportCancelledError
+        );
+    });
+
+    it('rejects before spawning when the abort signal was already set', async () => {
+        const { createRunFfmpeg, VideoExportCancelledError } = await import(
+            '../client/video-export-service'
+        );
+
+        const spawnSpy = vi.fn(() => new EventEmitter());
+        const runFfmpeg = createRunFfmpeg({
+            spawn: spawnSpy as unknown as typeof import('node:child_process').spawn
+        });
+
+        const controller = new AbortController();
+        controller.abort();
+
+        await expect(
+            runFfmpeg({
+                args: [],
+                durationMs: 10_000,
+                ffmpegPath: '/fake/ffmpeg',
+                signal: controller.signal
+            })
+        ).rejects.toBeInstanceOf(VideoExportCancelledError);
+        expect(spawnSpy).not.toHaveBeenCalled();
+    });
+
+    it('resolves when the ffmpeg child exits with code 0', async () => {
+        const { createRunFfmpeg } = await import(
+            '../client/video-export-service'
+        );
+
+        const child = new EventEmitter() as EventEmitter & {
+            stderr: EventEmitter;
+        };
+        child.stderr = new EventEmitter();
+
+        const runFfmpeg = createRunFfmpeg({
+            spawn: vi.fn(() => child) as unknown as typeof import('node:child_process').spawn
+        });
+
+        const runPromise = runFfmpeg({
+            args: [],
+            durationMs: 10_000,
+            ffmpegPath: '/fake/ffmpeg'
+        });
+
+        child.emit('close', 0);
+
+        await expect(runPromise).resolves.toBeUndefined();
+    });
+
+    it('maps a cancelled ffmpeg run to a CANCELLED result and cleans the temp directory', async () => {
+        const {
+            createVideoExportRenderer,
+            VideoExportCancelledError
+        } = await import('../client/video-export-service');
+
+        const tempRoot = await mkdtemp(
+            path.join(tmpdir(), 'miaoma-export-cancel-')
+        );
+        const events: unknown[] = [];
+
+        try {
+            const render = createVideoExportRenderer({
+                app: {
+                    getAppPath: () => path.resolve(__dirname, '..'),
+                    getPath: () => tempRoot,
+                    isPackaged: false
+                },
+                dialog: {
+                    showSaveDialog: async () => ({ canceled: true })
+                },
+                emitProgress: (event) => events.push(event),
+                runFfmpeg: async () => {
+                    throw new VideoExportCancelledError();
+                }
+            });
+
+            const result = await render({
+                outputPath: path.join(tempRoot, 'out.mp4'),
+                project: sampleVideoProject
+            });
+
+            expect(result).toEqual({
+                error: { code: 'CANCELLED', message: '已取消导出' },
+                success: false
+            });
+            expect(events).toContainEqual(
+                expect.objectContaining({
+                    percent: 100,
+                    phase: 'cancelled'
+                })
+            );
+            // finally 分支应把 mkdtemp 出来的临时目录整个删掉
+            expect(await readdir(tempRoot)).toEqual([]);
+        } finally {
+            await rm(tempRoot, { force: true, recursive: true });
+        }
+    });
+
+    it('aborts the active export when the cancel channel is invoked', async () => {
+        const { registerVideoExportIpc, videoExportIpcChannels } = await import(
+            '../client/video-export-ipc'
+        );
+
+        const handlers = new Map<string, (...args: never[]) => unknown>();
+        const ipcMain = {
+            handle: (
+                channel: string,
+                handler: (...args: never[]) => unknown
+            ) => {
+                handlers.set(channel, handler);
+            }
+        };
+
+        let observedSignal: AbortSignal | undefined;
+        registerVideoExportIpc({
+            createRenderer: () => async (_input, options) => {
+                observedSignal = options?.signal;
+
+                await new Promise<void>((resolve) => {
+                    if (options?.signal?.aborted) {
+                        resolve();
+                        return;
+                    }
+
+                    options?.signal?.addEventListener('abort', () => resolve());
+                });
+
+                return {
+                    error: { code: 'CANCELLED', message: '已取消导出' },
+                    success: false
+                };
+            },
+            ipcMain,
+            selectOutputPath: async () => ({
+                data: { outputPath: '/tmp/export.mp4' },
+                success: true
+            })
+        });
+
+        const invoke = async (channel: string, ...args: unknown[]) =>
+            (
+                handlers.get(channel) as unknown as
+                    | ((...callArgs: unknown[]) => unknown)
+                    | undefined
+            )?.(...args);
+
+        const fakeEvent: {
+            sender: { send: (channel: string, payload: unknown) => void };
+        } = { sender: { send: () => undefined } };
+
+        const renderPromise = invoke(
+            videoExportIpcChannels.render,
+            fakeEvent,
+            { project: {} }
+        ) as Promise<{ error: { code: string }; success: boolean }>;
+
+        // 让 render handler 先进入等待状态
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(observedSignal).toBeDefined();
+        expect(observedSignal?.aborted).toBe(false);
+
+        expect(await invoke(videoExportIpcChannels.cancel)).toBe(true);
+        expect(observedSignal?.aborted).toBe(true);
+
+        const result = await renderPromise;
+        expect(result.error.code).toBe('CANCELLED');
+
+        // 导出已结束,再取消是 no-op
+        expect(await invoke(videoExportIpcChannels.cancel)).toBe(false);
     });
 
     it('packages ffmpeg resources outside the asar archive', async () => {

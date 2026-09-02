@@ -851,6 +851,17 @@ export const MiaojianEditorScreen = ({
         }
     };
 
+    const handleCancelExport = () => {
+        if (typeof window === 'undefined' || !window.miaomaAPI?.videoExport) {
+            return;
+        }
+
+        // 不在这里改 UI 状态:主进程 abort 后 render promise 会以
+        // CANCELLED resolve,handleExportVideo 现有分支会落到
+        // 「已取消导出」。
+        void window.miaomaAPI.videoExport.cancel();
+    };
+
     return (
         <main
             aria-label={editorHeader.ariaLabel}
@@ -935,6 +946,7 @@ export const MiaojianEditorScreen = ({
                     progress={exportProgress}
                     state={exportDialogState}
                     onChoosePath={handleChooseExportPath}
+                    onCancelExport={handleCancelExport}
                     onClose={() => {
                         if (isExporting) return;
 
