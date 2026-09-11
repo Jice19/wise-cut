@@ -66,3 +66,6 @@ sample
 
 # Codebuddy
 .codebuddy/
+
+# pnpm 本地 store(pnpm install 可能在工作区创建)
+.pnpm-store/

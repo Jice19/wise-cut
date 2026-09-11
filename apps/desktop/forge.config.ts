@@ -1,10 +1,8 @@
 
-import { FuseV1Options, FuseVersion } from '@electron/fuses';
 import { MakerDeb } from '@electron-forge/maker-deb';
 import { MakerRpm } from '@electron-forge/maker-rpm';
 import { MakerSquirrel } from '@electron-forge/maker-squirrel';
 import { MakerZIP } from '@electron-forge/maker-zip';
-import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { VitePlugin } from '@electron-forge/plugin-vite';
 import type { ForgeConfig } from '@electron-forge/shared-types';
 
@@ -51,15 +49,13 @@ const config: ForgeConfig = {
                     config: 'vite.renderer.config.ts'
                 }
             ]
-        }),
-        new FusesPlugin({
-            version: FuseVersion.V1,
-            [FuseV1Options.RunAsNode]: false,
-            [FuseV1Options.EnableCookieEncryption]: true,
-            [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,
-            [FuseV1Options.EnableNodeCliInspectArguments]: false,
-            [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: true
         })
+        // 注意:这里刻意不使用 FusesPlugin。
+        // @electron-forge/plugin-fuses@7.10.2 的 peerDependency 是
+        // @electron/fuses@^1.0.0,而 2.x 是 ESM-only;CJS require(ESM)
+        // 在 Node 22 下"时灵时不灵",会让 forge 加载本配置时报
+        // "Cannot use 'import.meta' outside a module"(见 docs/plan.md §2.2)。
+        // 想恢复产物加固时,把 @electron/fuses 钉到 ^1.8.0 再加回来。
     ]
 };
 
